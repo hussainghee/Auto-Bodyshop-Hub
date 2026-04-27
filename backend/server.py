@@ -206,6 +206,21 @@ class PaymentIn(BaseModel):
     auth_code: Optional[str] = None
     notes: Optional[str] = None
 
+class ConsumedItem(BaseModel):
+    inventory_id: Optional[str] = None
+    sku: Optional[str] = None
+    name: str
+    qty: float
+    unit: Optional[str] = None
+    notes: Optional[str] = None
+
+class LineConsumptionIn(BaseModel):
+    line_index: int
+    consumed_inventory: List[ConsumedItem] = []
+
+class JobInternalNotesIn(BaseModel):
+    internal_notes: Optional[str] = None
+
 class InventoryIn(BaseModel):
     sku: str
     name: str
@@ -689,6 +704,32 @@ async def add_payment(jid: str, body: PaymentIn, user=Depends(require_roles("adm
 @api.delete("/jobs/{jid}/payments/{pid}")
 async def delete_payment(jid: str, pid: str, user=Depends(require_roles("admin"))):
     await db.jobs.update_one({"id": jid}, {"$pull": {"payments": {"id": pid}}})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/line-consumption")
+async def set_line_consumption(jid: str, body: LineConsumptionIn, user=Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    if user["role"] == "technician" and job.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not assigned")
+    lines = list(job.get("lines", []))
+    if body.line_index < 0 or body.line_index >= len(lines):
+        raise HTTPException(400, "Invalid line_index")
+    lines[body.line_index]["consumed_inventory"] = [c.model_dump() for c in body.consumed_inventory]
+    upd = {"lines": lines}
+    audit(user, upd, creating=False)
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.patch("/jobs/{jid}/internal-notes")
+async def set_internal_notes(jid: str, body: JobInternalNotesIn, user=Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    if user["role"] == "technician" and job.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not assigned")
+    upd = {"internal_notes": clean_str(body.internal_notes)}
+    audit(user, upd, creating=False)
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
 # Timer

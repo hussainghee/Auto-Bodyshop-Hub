@@ -9,7 +9,7 @@ import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
-import { Plus, Upload, Trash2, Play, Square, Printer, CreditCard, Edit3, MessageCircle } from "lucide-react";
+import { Plus, Upload, Trash2, Play, Square, Printer, CreditCard, Edit3, MessageCircle, Package, FileText, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 
@@ -28,6 +28,7 @@ export default function JobDetail() {
   const { user } = useAuth();
   const [job, setJob] = useState(null);
   const [techs, setTechs] = useState([]);
+  const [inventory, setInventory] = useState([]);
   const [newItem, setNewItem] = useState("");
   const beforeRef = useRef(null);
   const afterRef = useRef(null);
@@ -40,6 +41,14 @@ export default function JobDetail() {
   const [invTax, setInvTax] = useState(0);
   const [invNotes, setInvNotes] = useState("");
 
+  const [consumeOpen, setConsumeOpen] = useState(false);
+  const [consumeLineIdx, setConsumeLineIdx] = useState(null);
+  const [consumeItems, setConsumeItems] = useState([]);
+  const [consumeNewInv, setConsumeNewInv] = useState("");
+
+  const [internalNotes, setInternalNotes] = useState("");
+  const [internalSaving, setInternalSaving] = useState(false);
+
   const [liveTick, setLiveTick] = useState(0);
 
   const load = async () => {
@@ -48,16 +57,20 @@ export default function JobDetail() {
     setInvDiscount(data.discount || 0);
     setInvTax(data.tax_rate || 0);
     setInvNotes(data.notes || "");
+    setInternalNotes(data.internal_notes || "");
     if (user?.role === "admin" || user?.role === "sales") {
       try {
         const { data: u } = await api.get("/users/technicians");
         setTechs(u);
       } catch {/* tech can't list */}
     }
+    try {
+      const { data: inv } = await api.get("/inventory");
+      setInventory(inv);
+    } catch {/* ignore */}
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
-  // tick every second when timer running
   useEffect(() => {
     if (!job?.timer_running) return;
     const t = setInterval(() => setLiveTick(x => x + 1), 1000);
@@ -91,8 +104,7 @@ export default function JobDetail() {
 
   const assign = async (technician_id) => {
     await api.post(`/jobs/${id}/assign`, { technician_id });
-    toast.success("Assigned");
-    load();
+    toast.success("Assigned"); load();
   };
 
   const updateChecklist = async (items) => { await api.post(`/jobs/${id}/checklist`, { items }); load(); };
@@ -147,6 +159,49 @@ export default function JobDetail() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
   };
 
+  // CONSUMPTION
+  const openConsume = (idx) => {
+    setConsumeLineIdx(idx);
+    setConsumeItems((job.lines[idx]?.consumed_inventory || []).map(c => ({ ...c })));
+    setConsumeNewInv("");
+    setConsumeOpen(true);
+  };
+  const addConsumeItem = () => {
+    const inv = inventory.find(i => i.id === consumeNewInv);
+    if (!inv) return;
+    if (consumeItems.find(c => c.inventory_id === inv.id)) { toast.error("Already added"); return; }
+    setConsumeItems([...consumeItems, {
+      inventory_id: inv.id, sku: inv.sku, name: inv.name, unit: inv.unit, qty: 1, notes: "",
+    }]);
+    setConsumeNewInv("");
+  };
+  const updateConsumeItem = (i, patch) => setConsumeItems(consumeItems.map((c, idx) => idx === i ? { ...c, ...patch } : c));
+  const removeConsumeItem = (i) => setConsumeItems(consumeItems.filter((_, idx) => idx !== i));
+  const saveConsume = async () => {
+    try {
+      await api.post(`/jobs/${id}/line-consumption`, {
+        line_index: consumeLineIdx,
+        consumed_inventory: consumeItems.map(c => ({
+          inventory_id: c.inventory_id, sku: c.sku, name: c.name,
+          qty: Number(c.qty) || 0, unit: c.unit || null, notes: c.notes || null,
+        })),
+      });
+      toast.success("Materials saved");
+      setConsumeOpen(false);
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
+  };
+
+  const saveInternalNotes = async () => {
+    setInternalSaving(true);
+    try {
+      await api.patch(`/jobs/${id}/internal-notes`, { internal_notes: internalNotes });
+      toast.success("Saved");
+      load();
+    } catch { toast.error("Failed"); }
+    setInternalSaving(false);
+  };
+
   if (!job) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   const canEdit = user?.role !== "technician" || job.technician_id === user.id;
@@ -158,7 +213,7 @@ export default function JobDetail() {
       <PageHeader title={job.invoice_number || job.number} subtitle={job.invoice_number ? "Invoice" : "Job Card"}
         actions={<>
           <Link to="/jobs" className="no-print"><Button variant="outline" className="border-border rounded-sm">← Back</Button></Link>
-          <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print"><Printer size={14} className="mr-1.5" /> Print</Button>
+          <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print"><Printer size={14} className="mr-1.5" /> Print Invoice</Button>
           {job.customer?.mobile && <a href={waLink(job.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
           {canEdit && NEXT_STATUS[job.status] && <Button onClick={advance} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm no-print" data-testid="advance-status-btn">Mark {NEXT_STATUS[job.status].replace("_", " ")} →</Button>}
           {canEdit && job.status !== "completed" && job.status !== "cancelled" && <Button onClick={() => setStatus("cancelled")} variant="outline" className="border-[#FF3B30] text-[#FF3B30] rounded-sm no-print">Cancel Job</Button>}
@@ -167,8 +222,8 @@ export default function JobDetail() {
 
       <div className="p-8 grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* INVOICE CARD */}
-          <div className="border border-border bg-[#0F1115] rounded-sm p-6">
+          {/* PRINTABLE INVOICE CARD (customer-facing only) */}
+          <div className="border border-border bg-[#0F1115] rounded-sm p-6 print-page" id="print-area">
             <div className="flex items-start justify-between mb-4">
               <div>
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Customer · Vehicle</div>
@@ -210,8 +265,56 @@ export default function JobDetail() {
             </div>
           </div>
 
-          {/* PAYMENTS */}
-          <div className="border border-border bg-[#0F1115] rounded-sm">
+          {/* MATERIALS / CONSUMPTION — INTERNAL */}
+          <InternalSection title="Materials & Consumption (per service)" sub="Internal — not shown on customer invoice">
+            <div className="divide-y divide-border">
+              {job.lines.map((l, i) => {
+                const items = l.consumed_inventory || [];
+                return (
+                  <div key={i} className="px-6 py-4">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm">{l.service_name}</div>
+                      {canEdit && <Button size="sm" variant="outline" onClick={() => openConsume(i)} className="border-border rounded-sm text-xs" data-testid={`edit-consumption-${i}`}><Edit3 size={12} className="mr-1" /> Mark materials</Button>}
+                    </div>
+                    {items.length > 0 ? (
+                      <div className="mt-2 grid gap-1">
+                        {items.map((c, ci) => (
+                          <div key={ci} className="text-xs text-muted-foreground flex items-start gap-3 bg-background border border-border rounded-sm p-2">
+                            <Package size={12} className="mt-0.5 text-[#FFCC00]" />
+                            <div className="flex-1">
+                              <div className="text-sm text-white font-mono-data">{c.qty} {c.unit || ""} · <span className="font-semibold">{c.name}</span> {c.sku && <span className="text-muted-foreground">({c.sku})</span>}</div>
+                              {c.notes && <div className="text-xs text-muted-foreground mt-0.5 italic">“{c.notes}”</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground mt-1">No materials marked yet.</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </InternalSection>
+
+          {/* INTERNAL NOTES */}
+          <InternalSection title="Internal Notes" sub="Workshop notes — not shown on customer invoice">
+            <div className="p-6 space-y-2">
+              <textarea value={internalNotes} onChange={(e) => setInternalNotes(e.target.value)}
+                disabled={!canEdit} rows={4}
+                placeholder="E.g. PPF-001 roll: 2.4m used, 0.6m remainder stored labeled Batch-A14. Tint film: 1/2 roll used."
+                className="w-full bg-background border border-border rounded-sm text-sm p-3 font-mono-data disabled:opacity-70"
+                data-testid="internal-notes-textarea" />
+              {canEdit && (
+                <Button size="sm" onClick={saveInternalNotes} disabled={internalSaving} className="bg-[#FFCC00]/20 hover:bg-[#FFCC00]/30 text-[#FFCC00] border border-[#FFCC00]/40 rounded-sm" data-testid="save-internal-notes">
+                  {internalSaving ? "Saving…" : "Save Notes"}
+                </Button>
+              )}
+            </div>
+          </InternalSection>
+
+          {/* PAYMENTS (no-print) */}
+          <div className="border border-border bg-[#0F1115] rounded-sm no-print">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CreditCard size={14} className="text-[#3385FF]" />
@@ -233,7 +336,10 @@ export default function JobDetail() {
                     <td className="px-6 py-2 text-muted-foreground text-xs">{p.notes || "—"}</td>
                     <td className="px-6 py-2 text-muted-foreground text-xs">{fmtDateTime(p.recorded_at)}</td>
                     <td className="px-6 py-2 text-right font-mono-data font-semibold">{fmtKWD(p.amount)}</td>
-                    <td className="px-6 py-2 text-right">{user?.role === "admin" && <button onClick={() => deletePayment(p.id)} className="text-muted-foreground hover:text-[#FF3B30]"><Trash2 size={12} /></button>}</td>
+                    <td className="px-6 py-2 text-right flex items-center gap-2 justify-end">
+                      <Link to={`/jobs/${id}/receipts/${p.id}`} className="text-[#3385FF] text-xs hover:underline flex items-center gap-1" data-testid={`receipt-link-${p.id}`}><FileText size={12} /> Receipt</Link>
+                      {user?.role === "admin" && <button onClick={() => deletePayment(p.id)} className="text-muted-foreground hover:text-[#FF3B30]"><Trash2 size={12} /></button>}
+                    </td>
                   </tr>
                 ))}
                 {(!job.payments || job.payments.length === 0) && <tr><td colSpan={6} className="px-6 py-4 text-center text-sm text-muted-foreground">No payments recorded.</td></tr>}
@@ -241,8 +347,8 @@ export default function JobDetail() {
             </table>
           </div>
 
-          {/* CHECKLIST */}
-          <div className="border border-border bg-[#0F1115] rounded-sm">
+          {/* CHECKLIST (no-print) */}
+          <div className="border border-border bg-[#0F1115] rounded-sm no-print">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Technician Checklist</div>
               {(!job.checklist || job.checklist.length === 0) && canEdit && <Button onClick={seedChecklist} size="sm" className="bg-[#0066FF]/10 text-[#3385FF] border border-[#0066FF]/40 rounded-sm">Use default</Button>}
@@ -265,8 +371,8 @@ export default function JobDetail() {
             </div>
           </div>
 
-          {/* PHOTOS */}
-          <div className="grid md:grid-cols-2 gap-4">
+          {/* PHOTOS (no-print) */}
+          <div className="grid md:grid-cols-2 gap-4 no-print">
             <PhotoBlock title="Before" photos={job.before_photos} canEdit={canEdit} onClick={() => beforeRef.current?.click()} />
             <PhotoBlock title="After" photos={job.after_photos} canEdit={canEdit} onClick={() => afterRef.current?.click()} />
             <input ref={beforeRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && upload("before", e.target.files[0])} />
@@ -274,8 +380,7 @@ export default function JobDetail() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          {/* TIMER */}
+        <div className="space-y-4 no-print">
           <div className="border border-border bg-[#0F1115] rounded-sm p-5">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Job Timer</div>
             <div className="font-display text-3xl font-black font-mono-data">{fmtSeconds(liveSeconds)}</div>
@@ -290,7 +395,6 @@ export default function JobDetail() {
             )}
           </div>
 
-          {/* ASSIGNMENT */}
           <div className="border border-border bg-[#0F1115] rounded-sm p-5">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Assigned Technician</div>
             {(user?.role === "admin" || user?.role === "sales") ? (
@@ -324,7 +428,7 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {/* RECORD PAYMENT MODAL */}
+      {/* PAYMENT MODAL */}
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
         <DialogContent className="bg-[#0F1115] border-border rounded-sm">
           <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">Record Payment</DialogTitle></DialogHeader>
@@ -357,7 +461,7 @@ export default function JobDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* EDIT INVOICE MODAL */}
+      {/* INVOICE EDIT MODAL */}
       <Dialog open={invoiceEditOpen} onOpenChange={setInvoiceEditOpen}>
         <DialogContent className="bg-[#0F1115] border-border rounded-sm">
           <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">Edit Invoice</DialogTitle></DialogHeader>
@@ -372,9 +476,69 @@ export default function JobDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* CONSUMPTION MODAL */}
+      <Dialog open={consumeOpen} onOpenChange={setConsumeOpen}>
+        <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-2xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-black tracking-tighter">
+              Mark Materials Used
+              {consumeLineIdx !== null && <span className="text-sm font-normal text-muted-foreground ml-2">for {job.lines[consumeLineIdx]?.service_name}</span>}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 mt-2" data-testid="consume-form">
+            <div className="text-xs text-muted-foreground">Internal record — these details are <strong>NOT</strong> shown to the customer on the invoice or quotation. Upon job completion, stock is auto-deducted based on these entries.</div>
+            <div className="border border-border rounded-sm">
+              <div className="px-3 py-2 border-b border-border flex gap-2 items-center">
+                <Select value={consumeNewInv} onValueChange={setConsumeNewInv}>
+                  <SelectTrigger className="bg-background border-border rounded-sm h-9 flex-1" data-testid="consume-inv-select"><SelectValue placeholder="Select inventory item…" /></SelectTrigger>
+                  <SelectContent className="bg-[#0F1115] border-border max-h-[300px]">
+                    {inventory.map(inv => <SelectItem key={inv.id} value={inv.id}>{inv.name} — {inv.sku} ({inv.stock_qty} {inv.unit} left)</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button type="button" size="sm" onClick={addConsumeItem} disabled={!consumeNewInv} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm"><Plus size={14} className="mr-1" /> Add</Button>
+              </div>
+              <div className="divide-y divide-border">
+                {consumeItems.length === 0 && <div className="p-4 text-sm text-muted-foreground text-center">No materials marked. Select from catalog to add.</div>}
+                {consumeItems.map((c, i) => (
+                  <div key={i} className="p-3 grid grid-cols-[1fr_100px_1fr_auto] gap-2 items-start">
+                    <div>
+                      <div className="font-semibold text-sm">{c.name}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono-data">{c.sku}</div>
+                    </div>
+                    <Input type="number" step="0.01" value={c.qty} onChange={e => updateConsumeItem(i, { qty: e.target.value })} className="bg-background border-border rounded-sm h-9" placeholder="Qty" data-testid={`consume-qty-${i}`} />
+                    <Input value={c.notes || ""} onChange={e => updateConsumeItem(i, { notes: e.target.value })} className="bg-background border-border rounded-sm h-9" placeholder="Notes (e.g. leftover 0.6m stored)" data-testid={`consume-notes-${i}`} />
+                    <button type="button" onClick={() => removeConsumeItem(i)} className="text-muted-foreground hover:text-[#FF3B30] mt-2"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConsumeOpen(false)} className="border-border rounded-sm">Cancel</Button>
+              <Button onClick={saveConsume} className="bg-[#FFCC00]/20 hover:bg-[#FFCC00]/30 text-[#FFCC00] border border-[#FFCC00]/40 rounded-sm" data-testid="consume-save">Save Materials</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
+const InternalSection = ({ title, sub, children }) => (
+  <div className="border border-[#FFCC00]/30 bg-[#FFCC00]/5 rounded-sm no-print">
+    <div className="px-6 py-3 border-b border-[#FFCC00]/30 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <Lock size={12} className="text-[#FFCC00]" />
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-[#FFCC00] font-semibold">{title}</div>
+          {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+        </div>
+      </div>
+      <span className="tag-status" style={{ color: "#FFCC00", background: "rgba(255,204,0,0.08)", borderColor: "#FFCC00" }}>INTERNAL</span>
+    </div>
+    {children}
+  </div>
+);
 
 const Row = ({ label, value, bold, accent }) => (
   <div className="flex items-center justify-between">

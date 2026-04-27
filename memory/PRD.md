@@ -40,6 +40,13 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 - Printable quotation page
 - Dark-theme UI with sidebar nav
 
+### Iteration 3 (2026-04-27)
+- **Quotation editing post-creation**: Edit button on detail (draft/sent only) → modal to add/remove/edit lines, adjust discount/tax/valid_until/notes → PATCH /quotations/{id}
+- **Payment receipt print view**: `/jobs/:jid/receipts/:pid` route with compact printable card (receipt no, date, customer, vehicle, amount, method, auth code, invoice balance); "Receipt" link added on each payment row
+- **Materials/Consumption tracking per service line**: `POST /jobs/{id}/line-consumption` with `{line_index, consumed_inventory[]}` — Mark Materials modal with inventory picker, qty, unit, and per-item notes (e.g. "Used 0.5L, remainder stored"). Inventory stock auto-deducts on job completion
+- **Internal notes on job**: `PATCH /jobs/{id}/internal-notes` for workshop-only notes (tint/PPF roll leftover tracking, batch labels)
+- **Clear visual separation**: Internal sections have amber border + "INTERNAL" badge + `no-print` class so they NEVER appear on customer-facing invoice/quotation prints
+
 ### Iteration 2 (2026-04-27)
 - **Kuwait makes/models**: 30 makes seeded (Toyota, Lexus, Nissan, Mitsubishi, Land Rover, BMW, Mercedes, etc.) with cascading Make → Model dropdowns; admin-managed in Settings
 - **Customer save fixed**: only name + mobile required; email/address/notes strictly optional
