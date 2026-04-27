@@ -1,0 +1,95 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 2: The Performance Pro",
+  "design_philosophy": {
+    "core_principles": [
+      "Fusion over Imitation: Blend high-end luxury automotive aesthetics with sterile, high-utility technical CRM interfaces.",
+      "Emotion First: The UI should feel like the command center of a supercar. Sleek, precise, zero latency.",
+      "Content is King: Dense data tables must be instantly scannable. Use IBM Plex Sans for numbers and technical data.",
+      "Negative Space: Use 'p-6' or 'p-8' inside dashboard cards to let metrics breathe."
+    ],
+    "anti_patterns_avoided": [
+      "No standard SaaS purple/teal gradients. We use piercing Electric Blue and Deep Obsidian.",
+      "No generic Inter font. Using Outfit for headings and IBM Plex Sans for body.",
+      "No center-everything layouts. Strictly left-aligned data and asymmetric bento grids for the dashboard."
+    ]
+  },
+  "typography": {
+    "primary_font": "Outfit",
+    "secondary_font": "IBM Plex Sans",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl font-semibold tracking-tight",
+      "h4": "text-lg font-medium",
+      "body": "text-base font-normal leading-relaxed",
+      "small_labels": "text-xs font-bold uppercase tracking-[0.2em]"
+    }
+  },
+  "colors": {
+    "background": "#050505",
+    "surface": "#0F1115",
+    "surface_hover": "#1A1D24",
+    "border": "#272A30",
+    "primary": "#0066FF",
+    "primary_hover": "#3385FF",
+    "text_main": "#FFFFFF",
+    "text_muted": "#A1A1AA",
+    "status": {
+      "success": "#00FF66",
+      "warning": "#FFCC00",
+      "error": "#FF3B30",
+      "info": "#0066FF"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_system": "The 'Control Room' Grid (Mode B). Dense, functional, strict hierarchy.",
+    "container_padding": "p-6 md:p-8",
+    "border_radius": "rounded-sm (2px - 4px) to maintain a technical, sharp edge automotive feel.",
+    "surface_style": "Grid Borders (The 'Technical' Look). Use border-collapse on containers and 1px borders on items to expose the skeleton."
+  },
+  "components": {
+    "buttons": "Sharp edges, high contrast text. Transparent with 1px border for secondary, solid primary color for main CTA. MUST have explicit hover state: hover:bg-blue-600 hover:text-white.",
+    "cards": "Flat background (surface color), 1px subtle border, NO soft shadows. On hover: border color brightens, slight -translate-y-px.",
+    "tables": "Dense layout, left-aligned columns, alternating row colors (very subtle bg-white/5), sticky headers with uppercase tracking-wide labels.",
+    "forms": "Shadcn components heavily customized: dark inputs, sharp borders, high-contrast focus rings (focus:ring-2 focus:ring-primary focus:ring-offset-background).",
+    "modals": "Glassmorphism overlay (bg-black/80 backdrop-blur-sm), solid modal body with sharp technical borders.",
+    "vehicle_map": "Custom inline SVG. Top-down view of a car. Use <polygon> for panels (hood, roof, doors, glass). Stroke: #444, Fill: transparent. Hover: fill-primary/20. Active/Selected: fill-primary/50 with stroke-primary. Allow clicking to toggle selection."
+  },
+  "app_specific_instructions": {
+    "currency": "Kuwaiti Dinar (KWD). MUST format to 3 decimal places (e.g., KWD 15.500).",
+    "quotation_builder": "Implement as a multi-step modal dialog or full-page wizard. Steps: 1. Customer/Vehicle, 2. Area Selection (Interactive Map), 3. Services (Paint Protection, Tint, etc.), 4. Review & Quote.",
+    "job_card": "Include digital signature canvas (`react-signature-canvas`) and dual image upload zones (Before / After).",
+    "dashboard": "Bento layout. Top row: Key Metrics (Today's Jobs, Revenue KWD). Middle: Chart (Recharts) and Pending Jobs table. Bottom: Low Stock Alerts."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Duotone or Regular weight. Technical and clean."
+  },
+  "media": {
+    "images": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1759673735031-b6eabfc82261?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBjYXIlMjBkZXRhaWxpbmclMjB3b3Jrc2hvcHxlbnwwfHx8fDE3NzcyODEzMzR8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Close-up of a sleek black car interior and exterior. Perfect for login/auth screen background with a 50% black overlay."
+      },
+      "workshop_context": {
+        "url": "https://images.pexels.com/photos/4756886/pexels-photo-4756886.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Sleek sports cars in a high-tech automotive workshop. Use for empty states, 'No Jobs' placeholders, or marketing headers within the CRM."
+      }
+    }
+  },
+  "testing": {
+    "data_testid_requirement": "ALL interactive elements, form inputs, buttons, map panels, and tables MUST have a data-testid attribute using kebab-case role-based naming (e.g., 'customer-submit-btn', 'vehicle-map-hood')."
+  },
+  "instructions_to_main_agent": [
+    "Initialize React with Tailwind CSS and Shadcn UI.",
+    "Set the Tailwind config to use the dark theme exclusively (or default to dark).",
+    "Install @phosphor-icons/react, recharts, react-signature-canvas, and lucide-react.",
+    "Create the Sidebar and Header layout first. Header must have glassmorphism if sticky, or solid with 1px border.",
+    "Implement the Dashboard with a Bento Grid layout.",
+    "Build the Interactive Vehicle Map as a standalone SVG component with state for selected panels.",
+    "Ensure all monetary values use KWD with 3 decimal places.",
+    "Ensure forms use Shadcn UI with high contrast text colors.",
+    "Use pure HTML/Tailwind for custom layouts where Shadcn cards are too restrictive, preserving the 'Technical Grid' look."
+  ]
+}
