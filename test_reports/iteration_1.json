@@ -1,0 +1,39 @@
+{
+  "summary": "Comprehensive iter2 backend + frontend smoke testing. Backend: 23/23 pytest passing covering reseed, makes (30 with cascading models), customer minimal-save regression, inline vehicles, quotation expiry, convert→job, timer auto-status progression, payments (cash partial, knet/credit_card auth_code enforcement, balance paid via knet, admin-only delete), invoice edit recompute, completion auto-INV number, notifications shape, sales/pnl/jobs/customer-history reports, role enforcement. Frontend smoke: login OK, customer min-save OK, inline-vehicle row OK, 5 WhatsApp icons rendered, Settings 'New Make' button present, Reports page shows date filters + 7D/30D/90D presets + Apply + P&L card (Revenue/Discounts/Tax/COGS/Gross Profit) + payment-method donut + Sales-by-service chart + CSV downloads, Cmd-K palette opens on Ctrl+K, header has Search ⌘K + bell with badge=3 (visible in screenshot).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Test heuristic searched body text for 'Outstanding' on dashboard and did not find it; main agent should visually confirm the 5th metric card 'Outstanding A/R' is present and labeled correctly. Reports page shows outstanding context, but dashboard label needs eyes-on verification."]},
+      {"screen": "Multiple Dialogs", "issues": ["Radix console accessibility warnings: 'DialogContent requires a DialogTitle' and 'Missing Description or aria-describedby' for some dialogs (e.g., CommandPalette). Wrap title with VisuallyHidden or add DialogDescription to silence."]},
+      {"screen": "Reports / Cmd-K", "issues": ["Recharts ResponsiveContainer logs width(-1)/height(-1) warnings while the command palette overlay is open (container momentarily 0-sized). Minor; suppress with minWidth/minHeight or aspect."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter2_backend.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "Verify Dashboard explicitly renders the 5th 'Outstanding A/R' metric card (text not detected via DOM body scan during smoke).",
+    "Optional polish: add DialogTitle/Description (or VisuallyHidden) to CommandPalette and any modals lacking it to clear Radix a11y warnings.",
+    "Optional polish: give chart containers minHeight to avoid recharts width(-1) warning when overlays open."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1155 lines — past the 700-line guideline. Consider splitting into modules: auth.py, customers.py, jobs.py (payments+timer), quotations.py, reports.py, seed.py.",
+    "Computed numeric tolerances rely on round3 with 1e-9 nudge; payment_status threshold uses 0.001 — fine for KWD 3-dp, just document.",
+    "_is_expired() relies on string ISO comparison via fromisoformat; tolerant to naive 'YYYY-MM-DD' inputs (forces +00:00). Good.",
+    "Notifications query uses string 'updated_at' < (now-3d).isoformat() comparison — works because all timestamps are ISO UTC; fine but fragile if TZ formats diverge.",
+    "GET /api/jobs/{id} excludes _id properly. Good.",
+    "Seed endpoint has no auth (intentional for demo) — fine for preview env, but should be admin-gated in production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter2_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "smoke-pass on all checked surfaces"},
+  "test_credentials": "admin@autocrm.kw/admin123, sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "Reseeded via POST /api/seed?reseed=true → 3 users, 4 vehicle_types, 30 vehicle_makes, 10 services (incl. 1 bundle), 2 customers, 4 inventory items.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/test_iter2_backend.py covers seed, makes RBAC, customer min-save, inline vehicles, quotation expiry future/past, convert→job (no signature, status=confirmed), timer start auto-progresses to in_progress, timer stop captures seconds, payment validations (cash partial, knet/credit_card require auth_code, knet with auth_code marks paid), payment delete admin-only, invoice edit recalculates totals, completion auto-generates INV-XXXXX, notifications shape, reports/sales+pnl+jobs+customer-history, PNL admin-only. Run: pytest /app/backend/tests/test_iter2_backend.py -v. Frontend visually verified Reports page, Customers create flow, Settings makes section, Cmd-K palette."
+}

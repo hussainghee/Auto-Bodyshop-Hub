@@ -1,89 +1,1154 @@
-from fastapi import FastAPI, APIRouter
+"""Automotive Service CRM - FastAPI Backend.
+Kuwait market (KWD currency). JWT auth with role-based access.
+"""
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
 import uuid
-from datetime import datetime, timezone
+import shutil
+import logging
+import bcrypt
+import jwt
+from pathlib import Path
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Literal
+from datetime import datetime, timezone, timedelta
 
+from kuwait_seed_data import KUWAIT_MAKES_MODELS
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
-# Create the main app without a prefix
-app = FastAPI()
+JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-prod-automotive-crm-kw")
+JWT_ALG = "HS256"
+JWT_EXP_HOURS = 24 * 7
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="Automotive Service CRM", version="1.1.0")
+api = APIRouter(prefix="/api")
+security = HTTPBearer(auto_error=False)
 
+# ---------------- Helpers ----------------
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+def new_id() -> str:
+    return str(uuid.uuid4())
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode(), hashed.encode())
+    except Exception:
+        return False
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+def make_token(user_id: str, role: str) -> str:
+    payload = {
+        "sub": user_id, "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXP_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+async def get_current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    if not creds:
+        raise HTTPException(401, "Missing token")
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid token")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(401, "User not found")
+    return user
 
-# Include the router in the main app
-app.include_router(api_router)
+def require_roles(*roles: str):
+    async def check(user=Depends(get_current_user)):
+        if user["role"] not in roles:
+            raise HTTPException(403, f"Requires role: {', '.join(roles)}")
+        return user
+    return check
 
+def audit(user, doc: dict, creating: bool = True):
+    ts = now_iso()
+    if creating:
+        doc["created_by"] = user["id"]
+        doc["created_at"] = ts
+    doc["updated_by"] = user["id"]
+    doc["updated_at"] = ts
+    return doc
+
+def round3(n: float) -> float:
+    return round(n + 1e-9, 3)
+
+def clean_str(s: Optional[str]) -> Optional[str]:
+    if s is None:
+        return None
+    s = s.strip()
+    return s or None
+
+# ---------------- Models ----------------
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: Literal["admin", "sales", "technician"] = "sales"
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[Literal["admin", "sales", "technician"]] = None
+    password: Optional[str] = None
+    active: Optional[bool] = None
+
+class CustomerVehicleIn(BaseModel):
+    vehicle_type: str
+    make: str
+    model: str
+    year: Optional[int] = None
+    plate: Optional[str] = None
+    vin: Optional[str] = None
+    color: Optional[str] = None
+
+class CustomerIn(BaseModel):
+    name: str
+    mobile: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    preferred_contact: Literal["mobile", "email", "whatsapp"] = "mobile"
+    vehicles: List[CustomerVehicleIn] = []
+
+class VehicleIn(BaseModel):
+    customer_id: str
+    vehicle_type: str
+    make: str
+    model: str
+    year: Optional[int] = None
+    plate: Optional[str] = None
+    vin: Optional[str] = None
+    color: Optional[str] = None
+
+class VehicleTypeIn(BaseModel):
+    key: str
+    label: str
+    panels: List[Dict[str, Any]] = []
+    glass_areas: List[Dict[str, Any]] = []
+
+class VehicleMakeIn(BaseModel):
+    label: str
+    models: List[str] = []
+
+class ServiceIn(BaseModel):
+    name: str
+    category: Literal["paint_protection", "tint", "full_body_paint", "car_wash", "mobile_car_wash", "bundle", "other"]
+    pricing_mode: Literal["per_vehicle_type", "per_panel", "per_glass_area", "full_vehicle", "fixed"]
+    description: Optional[str] = None
+    fixed_price: Optional[float] = None
+    vehicle_type_prices: Dict[str, float] = {}
+    panel_prices: Dict[str, Dict[str, float]] = {}
+    glass_prices: Dict[str, Dict[str, float]] = {}
+    full_vehicle_prices: Dict[str, float] = {}
+    is_bundle: bool = False
+    bundle_items: List[str] = []  # service IDs included in bundle (display only)
+    active: bool = True
+
+class QuotationLineIn(BaseModel):
+    service_id: str
+    service_name: str
+    description: Optional[str] = None
+    quantity: float = 1
+    unit_price: float
+    selected_areas: List[str] = []
+    line_total: float
+
+class QuotationIn(BaseModel):
+    customer_id: str
+    vehicle_id: str
+    lines: List[QuotationLineIn]
+    discount: float = 0
+    tax_rate: float = 0
+    notes: Optional[str] = None
+    valid_until: Optional[str] = None  # ISO date
+
+class QuotationStatusIn(BaseModel):
+    status: Literal["draft", "sent", "approved", "rejected"]
+
+class JobStatusIn(BaseModel):
+    status: Literal["draft", "confirmed", "in_progress", "completed", "cancelled"]
+
+class JobChecklistIn(BaseModel):
+    items: List[Dict[str, Any]]
+
+class JobAssignIn(BaseModel):
+    technician_id: str
+
+class JobInvoiceEditIn(BaseModel):
+    discount: Optional[float] = None
+    tax_rate: Optional[float] = None
+    notes: Optional[str] = None
+
+class PaymentIn(BaseModel):
+    method: Literal["cash", "knet", "credit_card"]
+    amount: float
+    auth_code: Optional[str] = None
+    notes: Optional[str] = None
+
+class InventoryIn(BaseModel):
+    sku: str
+    name: str
+    category: str
+    unit: str = "pcs"
+    cost_price: float = 0
+    selling_price: float = 0
+    stock_qty: float = 0
+    low_stock_threshold: float = 5
+
+class AppointmentIn(BaseModel):
+    customer_id: str
+    vehicle_id: Optional[str] = None
+    service_label: str
+    start: str
+    end: Optional[str] = None
+    notes: Optional[str] = None
+
+# ---------------- Auth ----------------
+@api.post("/auth/login")
+async def login(body: LoginIn):
+    user = await db.users.find_one({"email": body.email.lower()})
+    if not user or not verify_password(body.password, user.get("password", "")):
+        raise HTTPException(401, "Invalid credentials")
+    if user.get("active") is False:
+        raise HTTPException(403, "Account disabled")
+    token = make_token(user["id"], user["role"])
+    user.pop("_id", None); user.pop("password", None)
+    return {"token": token, "user": user}
+
+@api.get("/auth/me")
+async def me(user=Depends(get_current_user)):
+    return user
+
+# ---------------- Users ----------------
+@api.get("/users")
+async def list_users(user=Depends(require_roles("admin"))):
+    return await db.users.find({}, {"_id": 0, "password": 0}).to_list(500)
+
+@api.get("/users/technicians")
+async def list_techs(user=Depends(get_current_user)):
+    return await db.users.find({"role": "technician"}, {"_id": 0, "password": 0}).to_list(500)
+
+@api.post("/users")
+async def create_user(body: UserCreate, user=Depends(require_roles("admin"))):
+    if await db.users.find_one({"email": body.email.lower()}):
+        raise HTTPException(400, "Email already exists")
+    doc = {
+        "id": new_id(), "name": body.name, "email": body.email.lower(),
+        "role": body.role, "password": hash_password(body.password), "active": True,
+    }
+    audit(user, doc)
+    await db.users.insert_one(doc.copy())
+    doc.pop("password", None)
+    return doc
+
+@api.patch("/users/{uid}")
+async def update_user(uid: str, body: UserUpdate, user=Depends(require_roles("admin"))):
+    upd = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+    if "password" in upd:
+        upd["password"] = hash_password(upd["password"])
+    audit(user, upd, creating=False)
+    await db.users.update_one({"id": uid}, {"$set": upd})
+    return await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+
+@api.delete("/users/{uid}")
+async def delete_user(uid: str, user=Depends(require_roles("admin"))):
+    await db.users.delete_one({"id": uid})
+    return {"ok": True}
+
+# ---------------- Customers ----------------
+@api.get("/customers")
+async def list_customers(q: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if q:
+        flt["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"mobile": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+        ]
+    return await db.customers.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+@api.post("/customers")
+async def create_customer(body: CustomerIn, user=Depends(require_roles("admin", "sales"))):
+    doc = {
+        "id": new_id(),
+        "name": body.name.strip(),
+        "mobile": body.mobile.strip(),
+        "email": clean_str(body.email),
+        "address": clean_str(body.address),
+        "notes": clean_str(body.notes),
+        "preferred_contact": body.preferred_contact,
+    }
+    audit(user, doc)
+    await db.customers.insert_one(doc.copy())
+    # inline vehicles
+    for v in body.vehicles or []:
+        veh = v.model_dump()
+        veh["id"] = new_id()
+        veh["customer_id"] = doc["id"]
+        audit(user, veh)
+        await db.vehicles.insert_one(veh.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/customers/{cid}")
+async def get_customer(cid: str, user=Depends(get_current_user)):
+    c = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not c:
+        raise HTTPException(404)
+    c["vehicles"] = await db.vehicles.find({"customer_id": cid}, {"_id": 0}).to_list(200)
+    c["quotations"] = await db.quotations.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    c["jobs"] = await db.jobs.find({"customer_id": cid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return c
+
+@api.patch("/customers/{cid}")
+async def update_customer(cid: str, body: CustomerIn, user=Depends(require_roles("admin", "sales"))):
+    upd = {
+        "name": body.name.strip(), "mobile": body.mobile.strip(),
+        "email": clean_str(body.email), "address": clean_str(body.address),
+        "notes": clean_str(body.notes), "preferred_contact": body.preferred_contact,
+    }
+    audit(user, upd, creating=False)
+    await db.customers.update_one({"id": cid}, {"$set": upd})
+    return await db.customers.find_one({"id": cid}, {"_id": 0})
+
+@api.delete("/customers/{cid}")
+async def delete_customer(cid: str, user=Depends(require_roles("admin"))):
+    await db.customers.delete_one({"id": cid})
+    await db.vehicles.delete_many({"customer_id": cid})
+    return {"ok": True}
+
+# ---------------- Vehicles ----------------
+@api.get("/vehicles")
+async def list_vehicles(customer_id: Optional[str] = None, user=Depends(get_current_user)):
+    flt = {"customer_id": customer_id} if customer_id else {}
+    return await db.vehicles.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+@api.post("/vehicles")
+async def create_vehicle(body: VehicleIn, user=Depends(require_roles("admin", "sales"))):
+    doc = body.model_dump(); doc["id"] = new_id()
+    audit(user, doc)
+    await db.vehicles.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.get("/vehicles/{vid}")
+async def get_vehicle(vid: str, user=Depends(get_current_user)):
+    v = await db.vehicles.find_one({"id": vid}, {"_id": 0})
+    if not v:
+        raise HTTPException(404)
+    v["jobs"] = await db.jobs.find({"vehicle_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    v["quotations"] = await db.quotations.find({"vehicle_id": vid}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return v
+
+@api.patch("/vehicles/{vid}")
+async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require_roles("admin", "sales"))):
+    upd = body.model_dump()
+    audit(user, upd, creating=False)
+    await db.vehicles.update_one({"id": vid}, {"$set": upd})
+    return await db.vehicles.find_one({"id": vid}, {"_id": 0})
+
+@api.delete("/vehicles/{vid}")
+async def delete_vehicle(vid: str, user=Depends(require_roles("admin", "sales"))):
+    await db.vehicles.delete_one({"id": vid})
+    return {"ok": True}
+
+# ---------------- Vehicle Types ----------------
+@api.get("/vehicle-types")
+async def list_vt(user=Depends(get_current_user)):
+    return await db.vehicle_types.find({}, {"_id": 0}).to_list(100)
+
+@api.post("/vehicle-types")
+async def create_vt(body: VehicleTypeIn, user=Depends(require_roles("admin"))):
+    if await db.vehicle_types.find_one({"key": body.key}):
+        raise HTTPException(400, "Key exists")
+    doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
+    await db.vehicle_types.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/vehicle-types/{vid}")
+async def update_vt(vid: str, body: VehicleTypeIn, user=Depends(require_roles("admin"))):
+    upd = body.model_dump(); audit(user, upd, creating=False)
+    await db.vehicle_types.update_one({"id": vid}, {"$set": upd})
+    return await db.vehicle_types.find_one({"id": vid}, {"_id": 0})
+
+@api.delete("/vehicle-types/{vid}")
+async def delete_vt(vid: str, user=Depends(require_roles("admin"))):
+    await db.vehicle_types.delete_one({"id": vid})
+    return {"ok": True}
+
+# ---------------- Vehicle Makes ----------------
+@api.get("/vehicle-makes")
+async def list_makes(user=Depends(get_current_user)):
+    return await db.vehicle_makes.find({}, {"_id": 0}).sort("label", 1).to_list(500)
+
+@api.post("/vehicle-makes")
+async def create_make(body: VehicleMakeIn, user=Depends(require_roles("admin"))):
+    if await db.vehicle_makes.find_one({"label": body.label}):
+        raise HTTPException(400, "Make already exists")
+    doc = {"id": new_id(), "label": body.label.strip(), "models": [m.strip() for m in body.models if m.strip()]}
+    audit(user, doc)
+    await db.vehicle_makes.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/vehicle-makes/{mid}")
+async def update_make(mid: str, body: VehicleMakeIn, user=Depends(require_roles("admin"))):
+    upd = {"label": body.label.strip(), "models": [m.strip() for m in body.models if m.strip()]}
+    audit(user, upd, creating=False)
+    await db.vehicle_makes.update_one({"id": mid}, {"$set": upd})
+    return await db.vehicle_makes.find_one({"id": mid}, {"_id": 0})
+
+@api.delete("/vehicle-makes/{mid}")
+async def delete_make(mid: str, user=Depends(require_roles("admin"))):
+    await db.vehicle_makes.delete_one({"id": mid})
+    return {"ok": True}
+
+# ---------------- Services ----------------
+@api.get("/services")
+async def list_services(user=Depends(get_current_user)):
+    return await db.services.find({}, {"_id": 0}).to_list(500)
+
+@api.post("/services")
+async def create_service(body: ServiceIn, user=Depends(require_roles("admin"))):
+    doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
+    await db.services.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/services/{sid}")
+async def update_service(sid: str, body: ServiceIn, user=Depends(require_roles("admin"))):
+    upd = body.model_dump(); audit(user, upd, creating=False)
+    await db.services.update_one({"id": sid}, {"$set": upd})
+    return await db.services.find_one({"id": sid}, {"_id": 0})
+
+@api.delete("/services/{sid}")
+async def delete_service(sid: str, user=Depends(require_roles("admin"))):
+    await db.services.delete_one({"id": sid})
+    return {"ok": True}
+
+# ---------------- Quotations ----------------
+def _calc_totals(lines, discount, tax_rate):
+    sub = sum(l["line_total"] for l in lines)
+    after_disc = max(sub - discount, 0)
+    tax_amount = round3(after_disc * (tax_rate / 100))
+    total = round3(after_disc + tax_amount)
+    return {"subtotal": round3(sub), "discount": round3(discount),
+            "tax_rate": tax_rate, "tax_amount": tax_amount, "total": total}
+
+async def _next_seq(name: str) -> int:
+    res = await db.counters.find_one_and_update(
+        {"_id": name}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
+    )
+    return res["seq"] if res else 1
+
+def _is_expired(q: dict) -> bool:
+    vu = q.get("valid_until")
+    if not vu:
+        return False
+    if q.get("status") in ("approved", "rejected"):
+        return False
+    try:
+        exp = datetime.fromisoformat(vu.replace("Z", "+00:00")) if "T" in vu else datetime.fromisoformat(vu + "T23:59:59+00:00")
+    except Exception:
+        return False
+    return datetime.now(timezone.utc) > exp
+
+@api.get("/quotations")
+async def list_quotations(user=Depends(get_current_user)):
+    rows = await db.quotations.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    for r in rows:
+        r["is_expired"] = _is_expired(r)
+    return rows
+
+@api.post("/quotations")
+async def create_quotation(body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
+    lines = [l.model_dump() for l in body.lines]
+    totals = _calc_totals(lines, body.discount, body.tax_rate)
+    seq = await _next_seq("quotation")
+    doc = {
+        "id": new_id(), "number": f"QT-{seq:05d}",
+        "customer_id": body.customer_id, "vehicle_id": body.vehicle_id,
+        "lines": lines, **totals, "notes": body.notes,
+        "status": "draft", "valid_until": body.valid_until,
+    }
+    audit(user, doc)
+    await db.quotations.insert_one(doc.copy())
+    doc.pop("_id", None)
+    doc["is_expired"] = _is_expired(doc)
+    return doc
+
+@api.get("/quotations/{qid}")
+async def get_quotation(qid: str, user=Depends(get_current_user)):
+    q = await db.quotations.find_one({"id": qid}, {"_id": 0})
+    if not q: raise HTTPException(404)
+    q["customer"] = await db.customers.find_one({"id": q["customer_id"]}, {"_id": 0})
+    q["vehicle"] = await db.vehicles.find_one({"id": q["vehicle_id"]}, {"_id": 0})
+    q["is_expired"] = _is_expired(q)
+    return q
+
+@api.patch("/quotations/{qid}")
+async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
+    lines = [l.model_dump() for l in body.lines]
+    totals = _calc_totals(lines, body.discount, body.tax_rate)
+    upd = {"customer_id": body.customer_id, "vehicle_id": body.vehicle_id,
+           "lines": lines, **totals, "notes": body.notes, "valid_until": body.valid_until}
+    audit(user, upd, creating=False)
+    await db.quotations.update_one({"id": qid}, {"$set": upd})
+    return await db.quotations.find_one({"id": qid}, {"_id": 0})
+
+@api.post("/quotations/{qid}/status")
+async def quotation_status(qid: str, body: QuotationStatusIn, user=Depends(require_roles("admin", "sales"))):
+    upd = {"status": body.status}
+    audit(user, upd, creating=False)
+    await db.quotations.update_one({"id": qid}, {"$set": upd})
+    return await db.quotations.find_one({"id": qid}, {"_id": 0})
+
+@api.delete("/quotations/{qid}")
+async def delete_quotation(qid: str, user=Depends(require_roles("admin"))):
+    await db.quotations.delete_one({"id": qid})
+    return {"ok": True}
+
+@api.post("/quotations/{qid}/convert")
+async def convert_to_job(qid: str, user=Depends(require_roles("admin", "sales"))):
+    q = await db.quotations.find_one({"id": qid}, {"_id": 0})
+    if not q: raise HTTPException(404)
+    seq = await _next_seq("job")
+    job = {
+        "id": new_id(), "number": f"JC-{seq:05d}",
+        "quotation_id": qid, "customer_id": q["customer_id"], "vehicle_id": q["vehicle_id"],
+        "lines": q["lines"], "subtotal": q["subtotal"], "discount": q["discount"],
+        "tax_rate": q["tax_rate"], "tax_amount": q["tax_amount"], "total": q["total"],
+        "status": "confirmed", "technician_id": None,
+        "checklist": [], "before_photos": [], "after_photos": [],
+        "payments": [], "time_entries": [],
+        "invoice_number": None, "completed_at": None,
+        "notes": q.get("notes"),
+    }
+    audit(user, job)
+    await db.jobs.insert_one(job.copy())
+    await db.quotations.update_one({"id": qid}, {"$set": {"status": "approved", "updated_at": now_iso()}})
+    job.pop("_id", None); return job
+
+# ---------------- Jobs ----------------
+def _job_payment_summary(job):
+    paid = round3(sum(p.get("amount", 0) for p in job.get("payments", [])))
+    bal = round3(job.get("total", 0) - paid)
+    if paid <= 0:
+        st = "unpaid"
+    elif bal <= 0.001:
+        st = "paid"
+    else:
+        st = "partial"
+    return paid, bal, st
+
+def _job_time_summary(job):
+    total = 0
+    for t in job.get("time_entries", []):
+        total += t.get("duration_seconds", 0) or 0
+    running = next((t for t in job.get("time_entries", []) if t.get("end") is None), None)
+    return total, running
+
+def _enrich_job(job):
+    paid, bal, st = _job_payment_summary(job)
+    job["total_paid"] = paid
+    job["balance_due"] = bal
+    job["payment_status"] = st
+    total_sec, running = _job_time_summary(job)
+    job["total_seconds"] = total_sec
+    job["timer_running"] = running is not None
+    return job
+
+@api.get("/jobs")
+async def list_jobs(status_: Optional[str] = Query(None, alias="status"),
+                    technician_id: Optional[str] = None,
+                    user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if status_: flt["status"] = status_
+    if technician_id: flt["technician_id"] = technician_id
+    if user["role"] == "technician":
+        flt["technician_id"] = user["id"]
+    rows = await db.jobs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return [_enrich_job(j) for j in rows]
+
+@api.get("/jobs/{jid}")
+async def get_job(jid: str, user=Depends(get_current_user)):
+    j = await db.jobs.find_one({"id": jid}, {"_id": 0})
+    if not j: raise HTTPException(404)
+    if user["role"] == "technician" and j.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not assigned")
+    j["customer"] = await db.customers.find_one({"id": j["customer_id"]}, {"_id": 0})
+    j["vehicle"] = await db.vehicles.find_one({"id": j["vehicle_id"]}, {"_id": 0})
+    if j.get("technician_id"):
+        j["technician"] = await db.users.find_one({"id": j["technician_id"]}, {"_id": 0, "password": 0})
+    return _enrich_job(j)
+
+@api.patch("/jobs/{jid}/invoice")
+async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_roles("admin", "sales"))):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    discount = body.discount if body.discount is not None else job.get("discount", 0)
+    tax_rate = body.tax_rate if body.tax_rate is not None else job.get("tax_rate", 0)
+    totals = _calc_totals(job.get("lines", []), discount, tax_rate)
+    upd = {**totals}
+    if body.notes is not None:
+        upd["notes"] = body.notes
+    audit(user, upd, creating=False)
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/status")
+async def job_status(jid: str, body: JobStatusIn, user=Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    if user["role"] == "technician" and job.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not assigned")
+    upd: Dict[str, Any] = {"status": body.status}
+    audit(user, upd, creating=False)
+    if body.status == "completed":
+        if not job.get("invoice_number"):
+            seq = await _next_seq("invoice")
+            upd["invoice_number"] = f"INV-{seq:05d}"
+        upd["completed_at"] = now_iso()
+        # stop running timer if any
+        entries = job.get("time_entries", [])
+        for e in entries:
+            if e.get("end") is None:
+                e["end"] = now_iso()
+                start = datetime.fromisoformat(e["start"])
+                e["duration_seconds"] = int((datetime.now(timezone.utc) - start).total_seconds())
+        upd["time_entries"] = entries
+        # deduct any consumed inventory
+        for line in job.get("lines", []):
+            for inv in line.get("consumed_inventory", []) or []:
+                await db.inventory.update_one({"id": inv["id"]}, {"$inc": {"stock_qty": -inv.get("qty", 0)}})
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/assign")
+async def assign_job(jid: str, body: JobAssignIn, user=Depends(require_roles("admin", "sales"))):
+    upd = {"technician_id": body.technician_id}
+    audit(user, upd, creating=False)
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/checklist")
+async def job_checklist(jid: str, body: JobChecklistIn, user=Depends(get_current_user)):
+    upd = {"checklist": body.items}
+    audit(user, upd, creating=False)
+    await db.jobs.update_one({"id": jid}, {"$set": upd})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/photos")
+async def job_photos(jid: str, kind: str = Query(..., regex="^(before|after)$"),
+                     file: UploadFile = File(...), user=Depends(get_current_user)):
+    ext = (file.filename or "img.jpg").split(".")[-1]
+    fname = f"{new_id()}.{ext}"
+    fpath = UPLOAD_DIR / fname
+    with fpath.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    url = f"/api/files/{fname}"
+    field = "before_photos" if kind == "before" else "after_photos"
+    await db.jobs.update_one({"id": jid}, {"$push": {field: url}, "$set": {"updated_at": now_iso(), "updated_by": user["id"]}})
+    return {"url": url}
+
+# Payments
+@api.post("/jobs/{jid}/payments")
+async def add_payment(jid: str, body: PaymentIn, user=Depends(require_roles("admin", "sales"))):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    if body.method in ("knet", "credit_card") and not (body.auth_code or "").strip():
+        raise HTTPException(400, f"Auth code required for {body.method}")
+    if body.amount <= 0:
+        raise HTTPException(400, "Amount must be > 0")
+    payment = {
+        "id": new_id(), "method": body.method, "amount": round3(body.amount),
+        "auth_code": clean_str(body.auth_code), "notes": clean_str(body.notes),
+        "recorded_by": user["id"], "recorded_at": now_iso(),
+    }
+    await db.jobs.update_one({"id": jid}, {"$push": {"payments": payment}, "$set": {"updated_at": now_iso(), "updated_by": user["id"]}})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.delete("/jobs/{jid}/payments/{pid}")
+async def delete_payment(jid: str, pid: str, user=Depends(require_roles("admin"))):
+    await db.jobs.update_one({"id": jid}, {"$pull": {"payments": {"id": pid}}})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+# Timer
+@api.post("/jobs/{jid}/timer/start")
+async def timer_start(jid: str, user=Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    if user["role"] == "technician" and job.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not assigned")
+    # close any running entry first
+    entries = job.get("time_entries", [])
+    for e in entries:
+        if e.get("end") is None:
+            e["end"] = now_iso()
+            start = datetime.fromisoformat(e["start"])
+            e["duration_seconds"] = int((datetime.now(timezone.utc) - start).total_seconds())
+    entries.append({"id": new_id(), "technician_id": user["id"], "start": now_iso(), "end": None, "duration_seconds": 0})
+    await db.jobs.update_one({"id": jid}, {"$set": {"time_entries": entries, "updated_at": now_iso()}})
+    if job.get("status") == "confirmed":
+        await db.jobs.update_one({"id": jid}, {"$set": {"status": "in_progress"}})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/jobs/{jid}/timer/stop")
+async def timer_stop(jid: str, user=Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": jid})
+    if not job: raise HTTPException(404)
+    entries = job.get("time_entries", [])
+    for e in entries:
+        if e.get("end") is None:
+            e["end"] = now_iso()
+            start = datetime.fromisoformat(e["start"])
+            e["duration_seconds"] = int((datetime.now(timezone.utc) - start).total_seconds())
+    await db.jobs.update_one({"id": jid}, {"$set": {"time_entries": entries, "updated_at": now_iso()}})
+    return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
+
+@api.post("/uploads/area")
+async def upload_area_image(file: UploadFile = File(...), user=Depends(get_current_user)):
+    ext = (file.filename or "img.jpg").split(".")[-1]
+    fname = f"{new_id()}.{ext}"
+    with (UPLOAD_DIR / fname).open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return {"url": f"/api/files/{fname}"}
+
+# ---------------- Inventory ----------------
+@api.get("/inventory")
+async def list_inventory(user=Depends(get_current_user)):
+    return await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(2000)
+
+@api.post("/inventory")
+async def create_inv(body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
+    doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
+    await db.inventory.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/inventory/{iid}")
+async def update_inv(iid: str, body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
+    upd = body.model_dump(); audit(user, upd, creating=False)
+    await db.inventory.update_one({"id": iid}, {"$set": upd})
+    return await db.inventory.find_one({"id": iid}, {"_id": 0})
+
+@api.delete("/inventory/{iid}")
+async def delete_inv(iid: str, user=Depends(require_roles("admin"))):
+    await db.inventory.delete_one({"id": iid})
+    return {"ok": True}
+
+# ---------------- Appointments ----------------
+@api.get("/appointments")
+async def list_appts(user=Depends(get_current_user)):
+    return await db.appointments.find({}, {"_id": 0}).sort("start", 1).to_list(2000)
+
+@api.post("/appointments")
+async def create_appt(body: AppointmentIn, user=Depends(require_roles("admin", "sales"))):
+    doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
+    await db.appointments.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/appointments/{aid}")
+async def update_appt(aid: str, body: AppointmentIn, user=Depends(require_roles("admin", "sales"))):
+    upd = body.model_dump(); audit(user, upd, creating=False)
+    await db.appointments.update_one({"id": aid}, {"$set": upd})
+    return await db.appointments.find_one({"id": aid}, {"_id": 0})
+
+@api.delete("/appointments/{aid}")
+async def delete_appt(aid: str, user=Depends(require_roles("admin", "sales"))):
+    await db.appointments.delete_one({"id": aid})
+    return {"ok": True}
+
+# ---------------- Notifications ----------------
+@api.get("/notifications")
+async def notifications(user=Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    three_days = (now - timedelta(days=3)).isoformat()
+    seven_days = (now - timedelta(days=7)).isoformat()
+    five_days = (now - timedelta(days=5)).isoformat()
+
+    low_stock = await db.inventory.find(
+        {"$expr": {"$lte": ["$stock_qty", "$low_stock_threshold"]}}, {"_id": 0}
+    ).to_list(50)
+    overdue_inprog = await db.jobs.find(
+        {"status": "in_progress", "updated_at": {"$lt": three_days}}, {"_id": 0}
+    ).to_list(50)
+    overdue_confirmed = await db.jobs.find(
+        {"status": "confirmed", "created_at": {"$lt": seven_days}}, {"_id": 0}
+    ).to_list(50)
+    pending_q = await db.quotations.find(
+        {"status": "sent", "updated_at": {"$lt": five_days}}, {"_id": 0}
+    ).to_list(50)
+    # outstanding A/R: completed jobs not fully paid
+    completed = await db.jobs.find({"status": "completed"}, {"_id": 0}).to_list(2000)
+    outstanding = []
+    total_outstanding = 0.0
+    for j in completed:
+        paid = sum(p.get("amount", 0) for p in j.get("payments", []))
+        bal = round3(j.get("total", 0) - paid)
+        if bal > 0.001:
+            outstanding.append({"id": j["id"], "number": j.get("number"), "invoice_number": j.get("invoice_number"),
+                                "customer_id": j["customer_id"], "balance": bal, "total": j.get("total", 0)})
+            total_outstanding += bal
+    # expired quotations
+    all_q = await db.quotations.find({"status": {"$in": ["draft", "sent"]}}, {"_id": 0}).to_list(500)
+    expired_quotes = [q for q in all_q if _is_expired(q)]
+    return {
+        "low_stock": low_stock,
+        "overdue_jobs": overdue_inprog + overdue_confirmed,
+        "pending_quotations": pending_q,
+        "expired_quotations": expired_quotes,
+        "outstanding_jobs": outstanding,
+        "total_outstanding": round3(total_outstanding),
+        "count": len(low_stock) + len(overdue_inprog) + len(overdue_confirmed) + len(pending_q) + len(expired_quotes) + len(outstanding),
+    }
+
+# ---------------- Reports ----------------
+def _date_filter(start, end):
+    rng: Dict[str, Any] = {}
+    if start: rng["$gte"] = start
+    if end: rng["$lte"] = end + "T23:59:59.999"
+    return rng
+
+@api.get("/reports/dashboard")
+async def dashboard(user=Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date().isoformat()
+    today_start = today + "T00:00:00"
+    today_end = today + "T23:59:59.999"
+    todays_jobs = await db.jobs.count_documents({"created_at": {"$gte": today_start, "$lte": today_end}})
+    pending_jobs = await db.jobs.count_documents({"status": {"$in": ["confirmed", "in_progress"]}})
+    completed_today = await db.jobs.find(
+        {"status": "completed", "completed_at": {"$gte": today_start, "$lte": today_end}}, {"_id": 0}
+    ).to_list(1000)
+    revenue_today = round3(sum(j.get("total", 0) for j in completed_today))
+    customers_count = await db.customers.count_documents({})
+    low_stock = await db.inventory.find(
+        {"$expr": {"$lte": ["$stock_qty", "$low_stock_threshold"]}}, {"_id": 0}
+    ).to_list(50)
+    # 7 day series
+    series = []
+    for i in range(6, -1, -1):
+        d = (datetime.now(timezone.utc) - timedelta(days=i)).date().isoformat()
+        s = d + "T00:00:00"; e = d + "T23:59:59.999"
+        jobs = await db.jobs.find({"status": "completed", "completed_at": {"$gte": s, "$lte": e}}, {"_id": 0}).to_list(500)
+        series.append({"date": d, "revenue": round3(sum(j.get("total", 0) for j in jobs))})
+    # outstanding A/R
+    completed_all = await db.jobs.find({"status": "completed"}, {"_id": 0}).to_list(5000)
+    outstanding = 0.0
+    for j in completed_all:
+        paid = sum(p.get("amount", 0) for p in j.get("payments", []))
+        bal = j.get("total", 0) - paid
+        if bal > 0.001:
+            outstanding += bal
+    return {
+        "todays_jobs": todays_jobs, "pending_jobs": pending_jobs,
+        "revenue_today": revenue_today, "customers_count": customers_count,
+        "low_stock": low_stock, "revenue_series": series,
+        "outstanding_total": round3(outstanding),
+    }
+
+@api.get("/reports/sales")
+async def sales_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+    flt: Dict[str, Any] = {"status": "completed"}
+    df = _date_filter(start, end)
+    if df: flt["completed_at"] = df
+    jobs = await db.jobs.find(flt, {"_id": 0}).to_list(10000)
+    by_service: Dict[str, float] = {}
+    by_method: Dict[str, float] = {"cash": 0, "knet": 0, "credit_card": 0}
+    for j in jobs:
+        for line in j.get("lines", []):
+            by_service[line["service_name"]] = by_service.get(line["service_name"], 0) + line.get("line_total", 0)
+        for p in j.get("payments", []):
+            by_method[p["method"]] = by_method.get(p["method"], 0) + p.get("amount", 0)
+    total_revenue = round3(sum(j.get("total", 0) for j in jobs))
+    total_collected = round3(sum(v for v in by_method.values()))
+    return {"jobs": jobs, "total_revenue": total_revenue,
+            "total_collected": total_collected,
+            "by_service": [{"service": k, "amount": round3(v)} for k, v in sorted(by_service.items(), key=lambda x: -x[1])],
+            "by_method": [{"method": k, "amount": round3(v)} for k, v in by_method.items()]}
+
+@api.get("/reports/jobs")
+async def jobs_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    df = _date_filter(start, end)
+    if df: flt["created_at"] = df
+    jobs = await db.jobs.find(flt, {"_id": 0}).to_list(10000)
+    by_status: Dict[str, int] = {}
+    for j in jobs:
+        by_status[j["status"]] = by_status.get(j["status"], 0) + 1
+    return {"jobs": jobs, "by_status": [{"status": k, "count": v} for k, v in by_status.items()]}
+
+@api.get("/reports/inventory")
+async def inv_report(user=Depends(get_current_user)):
+    items = await db.inventory.find({}, {"_id": 0}).to_list(2000)
+    total_value = round3(sum(i.get("stock_qty", 0) * i.get("cost_price", 0) for i in items))
+    low = [i for i in items if i.get("stock_qty", 0) <= i.get("low_stock_threshold", 0)]
+    return {"items": items, "total_stock_value": total_value, "low_stock": low}
+
+@api.get("/reports/pnl")
+async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles("admin"))):
+    flt: Dict[str, Any] = {"status": "completed"}
+    df = _date_filter(start, end)
+    if df: flt["completed_at"] = df
+    jobs = await db.jobs.find(flt, {"_id": 0}).to_list(10000)
+    revenue = round3(sum(j.get("total", 0) for j in jobs))
+    discounts = round3(sum(j.get("discount", 0) for j in jobs))
+    tax_collected = round3(sum(j.get("tax_amount", 0) for j in jobs))
+    # COGS approximation: sum of consumed_inventory cost_price * qty
+    cogs = 0.0
+    for j in jobs:
+        for line in j.get("lines", []):
+            for inv in line.get("consumed_inventory", []) or []:
+                inv_doc = await db.inventory.find_one({"id": inv["id"]}, {"_id": 0})
+                if inv_doc:
+                    cogs += inv_doc.get("cost_price", 0) * inv.get("qty", 0)
+    cogs = round3(cogs)
+    gross_profit = round3(revenue - cogs)
+    return {
+        "revenue": revenue, "discounts_given": discounts, "tax_collected": tax_collected,
+        "cogs": cogs, "gross_profit": gross_profit, "job_count": len(jobs),
+        "net_profit": gross_profit,  # without expenses tracking
+    }
+
+@api.get("/reports/customer-history/{cid}")
+async def customer_history(cid: str, start: Optional[str] = None, end: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {"customer_id": cid}
+    df = _date_filter(start, end)
+    if df: flt["created_at"] = df
+    jobs = await db.jobs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    quotations = await db.quotations.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    total_spent = round3(sum(j.get("total", 0) for j in jobs if j.get("status") == "completed"))
+    return {"jobs": jobs, "quotations": quotations, "total_spent": total_spent, "visits": len([j for j in jobs if j.get("status") == "completed"])}
+
+# ---------------- File serving ----------------
+@api.get("/files/{fname}")
+async def get_file(fname: str):
+    from fastapi.responses import FileResponse
+    fp = UPLOAD_DIR / fname
+    if not fp.exists():
+        raise HTTPException(404)
+    return FileResponse(fp)
+
+# ---------------- Seed ----------------
+@api.post("/seed")
+async def seed(reseed: bool = False, user=Depends(get_current_user) if False else None):
+    if not reseed and await db.users.count_documents({}) > 0:
+        return {"seeded": False, "message": "Already seeded. Pass ?reseed=true to overwrite."}
+    if reseed:
+        for c in ["users", "customers", "vehicles", "vehicle_types", "vehicle_makes",
+                  "services", "quotations", "jobs", "inventory", "appointments", "counters"]:
+            await db[c].delete_many({})
+
+    users = [
+        {"id": new_id(), "name": "Ahmad Al-Sabah", "email": "admin@autocrm.kw",
+         "password": hash_password("admin123"), "role": "admin", "active": True,
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "name": "Yusuf Front Desk", "email": "sales@autocrm.kw",
+         "password": hash_password("sales123"), "role": "sales", "active": True,
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "name": "Khalid Technician", "email": "tech@autocrm.kw",
+         "password": hash_password("tech123"), "role": "technician", "active": True,
+         "created_at": now_iso(), "updated_at": now_iso()},
+    ]
+    await db.users.insert_many([u.copy() for u in users])
+
+    sedan_panels = [
+        {"id": "hood", "label": "Hood", "number": 1},
+        {"id": "roof", "label": "Roof", "number": 2},
+        {"id": "trunk", "label": "Trunk", "number": 3},
+        {"id": "front_bumper", "label": "Front Bumper", "number": 4},
+        {"id": "rear_bumper", "label": "Rear Bumper", "number": 5},
+        {"id": "fl_door", "label": "Front Left Door", "number": 6},
+        {"id": "fr_door", "label": "Front Right Door", "number": 7},
+        {"id": "rl_door", "label": "Rear Left Door", "number": 8},
+        {"id": "rr_door", "label": "Rear Right Door", "number": 9},
+        {"id": "fl_fender", "label": "Front Left Fender", "number": 10},
+        {"id": "fr_fender", "label": "Front Right Fender", "number": 11},
+        {"id": "rl_qpanel", "label": "Rear Left Quarter", "number": 12},
+        {"id": "rr_qpanel", "label": "Rear Right Quarter", "number": 13},
+    ]
+    sedan_glass = [
+        {"id": "windshield", "label": "Windshield", "number": 1},
+        {"id": "rear_glass", "label": "Rear Glass", "number": 2},
+        {"id": "fl_glass", "label": "Front Left Window", "number": 3},
+        {"id": "fr_glass", "label": "Front Right Window", "number": 4},
+        {"id": "rl_glass", "label": "Rear Left Window", "number": 5},
+        {"id": "rr_glass", "label": "Rear Right Window", "number": 6},
+        {"id": "sunroof", "label": "Sunroof", "number": 7},
+    ]
+    vts = [
+        {"id": new_id(), "key": "sedan", "label": "Sedan", "panels": sedan_panels, "glass_areas": sedan_glass},
+        {"id": new_id(), "key": "suv", "label": "SUV", "panels": sedan_panels, "glass_areas": sedan_glass},
+        {"id": new_id(), "key": "truck", "label": "Truck", "panels": sedan_panels[:11], "glass_areas": sedan_glass[:6]},
+        {"id": new_id(), "key": "boat", "label": "Boat",
+         "panels": [{"id": "hull", "label": "Hull", "number": 1}, {"id": "deck", "label": "Deck", "number": 2}],
+         "glass_areas": [{"id": "windshield", "label": "Windshield", "number": 1}]},
+    ]
+    for vt in vts:
+        vt["created_at"] = now_iso(); vt["updated_at"] = now_iso()
+    await db.vehicle_types.insert_many([v.copy() for v in vts])
+
+    # Vehicle makes
+    makes_docs = []
+    for m in KUWAIT_MAKES_MODELS:
+        makes_docs.append({"id": new_id(), "label": m["label"], "models": m["models"],
+                           "created_at": now_iso(), "updated_at": now_iso()})
+    await db.vehicle_makes.insert_many([m.copy() for m in makes_docs])
+
+    panel_price_sedan = {p["id"]: 12.000 for p in sedan_panels}
+    panel_price_suv = {p["id"]: 15.000 for p in sedan_panels}
+    panel_price_truck = {p["id"]: 18.000 for p in sedan_panels[:11]}
+    panel_price_boat = {"hull": 80.000, "deck": 40.000}
+    glass_price_sedan = {g["id"]: 8.000 for g in sedan_glass}
+    glass_price_suv = {g["id"]: 10.000 for g in sedan_glass}
+
+    services = [
+        {"id": new_id(), "name": "Paint Protection Film (PPF)", "category": "paint_protection",
+         "pricing_mode": "per_panel",
+         "panel_prices": {"sedan": panel_price_sedan, "suv": panel_price_suv, "truck": panel_price_truck, "boat": panel_price_boat},
+         "vehicle_type_prices": {}, "glass_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Per-panel paint protection film", "active": True},
+        {"id": new_id(), "name": "Full Body Paint Protection", "category": "paint_protection",
+         "pricing_mode": "full_vehicle",
+         "full_vehicle_prices": {"sedan": 180.000, "suv": 240.000, "truck": 300.000, "boat": 500.000},
+         "vehicle_type_prices": {}, "panel_prices": {}, "glass_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Full vehicle PPF package", "active": True},
+        {"id": new_id(), "name": "Window Tint", "category": "tint",
+         "pricing_mode": "per_glass_area",
+         "glass_prices": {"sedan": glass_price_sedan, "suv": glass_price_suv, "truck": glass_price_sedan, "boat": {"windshield": 12.000}},
+         "vehicle_type_prices": {}, "panel_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Per-glass-area tinting", "active": True},
+        {"id": new_id(), "name": "Full Vehicle Tint Package", "category": "tint",
+         "pricing_mode": "full_vehicle",
+         "full_vehicle_prices": {"sedan": 45.000, "suv": 55.000, "truck": 50.000, "boat": 30.000},
+         "vehicle_type_prices": {}, "panel_prices": {}, "glass_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "All glass tint package", "active": True},
+        {"id": new_id(), "name": "Full Body Paint", "category": "full_body_paint",
+         "pricing_mode": "full_vehicle",
+         "full_vehicle_prices": {"sedan": 350.000, "suv": 450.000, "truck": 500.000, "boat": 800.000},
+         "vehicle_type_prices": {}, "panel_prices": {}, "glass_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Repaint full body", "active": True},
+        {"id": new_id(), "name": "Panel Repaint", "category": "full_body_paint",
+         "pricing_mode": "per_panel",
+         "panel_prices": {"sedan": {p["id"]: 25.000 for p in sedan_panels},
+                          "suv": {p["id"]: 30.000 for p in sedan_panels},
+                          "truck": {p["id"]: 35.000 for p in sedan_panels[:11]},
+                          "boat": {"hull": 150.000, "deck": 80.000}},
+         "vehicle_type_prices": {}, "glass_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Per-panel repaint", "active": True},
+        {"id": new_id(), "name": "Standard Car Wash", "category": "car_wash",
+         "pricing_mode": "fixed", "fixed_price": 4.500,
+         "vehicle_type_prices": {}, "panel_prices": {}, "glass_prices": {}, "full_vehicle_prices": {},
+         "is_bundle": False, "bundle_items": [],
+         "description": "Exterior wash", "active": True},
+        {"id": new_id(), "name": "Premium Car Wash", "category": "car_wash",
+         "pricing_mode": "per_vehicle_type",
+         "vehicle_type_prices": {"sedan": 8.000, "suv": 10.000, "truck": 12.000, "boat": 20.000},
+         "panel_prices": {}, "glass_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "Wash + interior + wax", "active": True},
+        {"id": new_id(), "name": "Mobile Car Wash", "category": "mobile_car_wash",
+         "pricing_mode": "per_vehicle_type",
+         "vehicle_type_prices": {"sedan": 12.000, "suv": 15.000, "truck": 18.000, "boat": 25.000},
+         "panel_prices": {}, "glass_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": False, "bundle_items": [],
+         "description": "We come to your location", "active": True},
+        {"id": new_id(), "name": "Detail Plus Bundle", "category": "bundle",
+         "pricing_mode": "per_vehicle_type",
+         "vehicle_type_prices": {"sedan": 60.000, "suv": 80.000, "truck": 90.000, "boat": 120.000},
+         "panel_prices": {}, "glass_prices": {}, "full_vehicle_prices": {}, "fixed_price": None,
+         "is_bundle": True, "bundle_items": ["Premium Car Wash", "Full Vehicle Tint Package"],
+         "description": "Premium wash + full tint at 20% off", "active": True},
+    ]
+    for s in services:
+        s["created_at"] = now_iso(); s["updated_at"] = now_iso()
+    await db.services.insert_many([s.copy() for s in services])
+
+    customers = [
+        {"id": new_id(), "name": "Mohammed Al-Rashid", "mobile": "+96599887766",
+         "email": "m.rashid@example.kw", "address": "Salmiya, Block 10",
+         "preferred_contact": "whatsapp", "notes": "VIP customer",
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "name": "Fatima Al-Saleh", "mobile": "+96566554433",
+         "email": "fatima@example.kw", "address": "Hawalli, Block 4",
+         "preferred_contact": "mobile", "notes": None,
+         "created_at": now_iso(), "updated_at": now_iso()},
+    ]
+    await db.customers.insert_many([c.copy() for c in customers])
+
+    vehicles = [
+        {"id": new_id(), "customer_id": customers[0]["id"], "vehicle_type": "suv",
+         "make": "Land Rover", "model": "Range Rover", "year": 2023, "plate": "12345",
+         "vin": "SALGS2VF8DA000001", "color": "Black",
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "customer_id": customers[1]["id"], "vehicle_type": "sedan",
+         "make": "Lexus", "model": "ES 350", "year": 2024, "plate": "67890",
+         "vin": "JTHBK1GG2A2123456", "color": "White",
+         "created_at": now_iso(), "updated_at": now_iso()},
+    ]
+    await db.vehicles.insert_many([v.copy() for v in vehicles])
+
+    inventory = [
+        {"id": new_id(), "sku": "PPF-001", "name": "PPF Roll 1.52m x 15m",
+         "category": "Paint Protection", "unit": "roll", "cost_price": 120.000,
+         "selling_price": 220.000, "stock_qty": 8, "low_stock_threshold": 3,
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "sku": "TINT-35", "name": "Tint Film 35% (1.52m)",
+         "category": "Tint", "unit": "roll", "cost_price": 25.000,
+         "selling_price": 50.000, "stock_qty": 15, "low_stock_threshold": 5,
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "sku": "WASH-SHAMP", "name": "Premium Car Shampoo 5L",
+         "category": "Car Wash", "unit": "bottle", "cost_price": 6.000,
+         "selling_price": 12.000, "stock_qty": 4, "low_stock_threshold": 5,
+         "created_at": now_iso(), "updated_at": now_iso()},
+        {"id": new_id(), "sku": "WAX-CARN", "name": "Carnauba Wax",
+         "category": "Detailing", "unit": "tin", "cost_price": 8.000,
+         "selling_price": 18.000, "stock_qty": 12, "low_stock_threshold": 4,
+         "created_at": now_iso(), "updated_at": now_iso()},
+    ]
+    await db.inventory.insert_many([i.copy() for i in inventory])
+
+    return {"seeded": True, "users": len(users), "vehicle_types": len(vts),
+            "vehicle_makes": len(makes_docs), "services": len(services),
+            "customers": len(customers), "inventory": len(inventory)}
+
+# ---------------- Mount ----------------
+app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown():
     client.close()
