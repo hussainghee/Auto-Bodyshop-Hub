@@ -128,7 +128,7 @@ export default function QuotationDetail() {
               {q.valid_until && <div className="text-sm text-muted-foreground">Valid until {fmtDate(q.valid_until)}</div>}
             </div>
             <div className="text-right">
-              <div className="font-display text-xl font-black tracking-tighter">AUTO/CRM Workshop</div>
+              <div className="font-display text-xl font-black tracking-tighter">wetworks</div>
               <div className="text-xs text-muted-foreground mt-1">Salmiya, Kuwait</div>
               <div className="mt-2 flex justify-end gap-2">
                 <StatusBadge status={q.status} />

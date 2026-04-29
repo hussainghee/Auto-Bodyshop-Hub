@@ -35,7 +35,7 @@ export default function Receipt() {
               <div className="text-sm text-muted-foreground mt-1">{fmtDateTime(payment.recorded_at)}</div>
             </div>
             <div className="text-right">
-              <div className="font-display text-xl font-black tracking-tighter">AUTO/CRM Workshop</div>
+              <div className="font-display text-xl font-black tracking-tighter">wetworks</div>
               <div className="text-xs text-muted-foreground mt-1">Salmiya, Kuwait</div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-2">Against {job.invoice_number || job.number}</div>
             </div>

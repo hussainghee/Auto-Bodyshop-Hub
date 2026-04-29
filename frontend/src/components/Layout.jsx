@@ -30,13 +30,7 @@ export default function Layout() {
     <div className="min-h-screen flex bg-background text-foreground">
       <aside className="w-60 border-r border-border bg-[#0a0b0e] flex flex-col" data-testid="sidebar">
         <div className="px-5 py-6 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 brand-stripe rounded-sm" />
-            <div>
-              <div className="font-display font-black text-lg leading-none tracking-tighter">AUTO/CRM</div>
-              <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mt-1">Kuwait • KWD</div>
-            </div>
-          </div>
+          <div className="font-display font-black text-2xl leading-none tracking-tighter" data-testid="brand">wetworks</div>
         </div>
         <nav className="py-3 flex-1 overflow-y-auto">
           {items.map(({ to, label, icon: Icon }) => (
