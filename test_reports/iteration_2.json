@@ -1,0 +1,39 @@
+{
+  "summary": "Phase 1 (Wetworks rebrand + Excel export/import + Segments w/ behavioural filters) end-to-end testing. Backend pytest: 13/13 PASS covering /api/export/customers (xlsx 200 + correct content-type), /api/export/vehicles with make/year filters (xlsx), /api/import/customers (first import creates rows, re-import returns skipped_duplicates=2 as designed), /api/segments/preview with empty filter == total customers, min_total_spend=1000 returns 0, min_job_count=1 returns annotated rows (job_count/total_spend/last_service), last_service_after returns customers with completed jobs, segment CRUD (create→list→export xlsx→delete), and RBAC (sales 403 on DELETE, admin 200). Frontend smoke: Wetworks branding (login + sidebar logo + 'Wetworks' text), Customers page testids (export-customers-btn, import-customers-btn, customer-search, new-customer-btn, import-customers-file) all present, customers export downloaded customers_2026-05-04.xlsx successfully, Vehicles page filters (make/model/year/type/start/end + search + export) all present, vehicles export downloaded vehicles_2026-05-04.xlsx, Segments page with 'Toyota Owners' seed + Export/Delete actions, New Segment modal contains Vehicle Filters / Customer Filters / Behaviour Filters sections with all expected testids (filter-min-spend, filter-max-spend, filter-min-jobs, filter-max-jobs, filter-last-service-after, filter-last-service-before, preview-btn, save-segment-btn) and Preview Customers returns Matching:6 with NAME/MOBILE/CITY/JOBS/SPEND(KWD)/LAST SERVICE columns rendering correctly (verified via screenshot).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Sidebar", "issues": ["Minor: clicking the [data-testid=nav-customers-group] toggle when the group was already auto-expanded after login produced an inconsistent state where the child [data-testid=nav-customers] link briefly disappeared. Workaround: navigate via direct URL (works) or click vehicles/segments first. Cosmetic only."]},
+      {"screen": "Reports + CommandPalette", "issues": ["Pre-existing recharts warning width(-1)/height(-1) and Radix DialogTitle/DialogDescription accessibility warnings still present (not introduced this iteration)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase1_segments_export.py",
+    "/app/test_reports/pytest/phase1_results.xml",
+    "/app/backend/tests/test_iter2_backend.py"
+  ],
+  "action_items": [
+    "Optional polish: Auto-expand the Customers sidebar group when on /customers or /customers/segments routes so child links remain accessible; or have the toggle no-op when the active route is a child."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1516 lines — well above the 700-line guideline. Strongly recommend splitting (auth.py, customers.py, vehicles.py, jobs.py, quotations.py, reports.py, segments.py, export_import.py, seed.py).",
+    "_apply_segment_filters runs three sequential collection scans (customers → vehicles → jobs aggregation). For larger datasets consider a single $lookup-based aggregation; current design is fine for current seed scale.",
+    "Behavioural last_service is a $max over completed_at OR updated_at. updated_at gets bumped by ANY job mutation (e.g. payment/edit on an in-progress job), which can falsely satisfy last_service_after for not-yet-completed jobs. Recommend: $max over completed_at only and ignore non-completed jobs (or filter status==completed in the $match stage).",
+    "Import endpoint dedupes by mobile only; recommend trimming/normalising mobile (strip spaces, leading 0/+) and surfacing a row index in the success summary. errors[] only catches missing name/mobile.",
+    "Preferred contact normalisation falls back to 'mobile' silently when invalid — fine but consider logging.",
+    "/api/export/vehicles 'q' filtering is in-memory (post-fetch) with up to 20k docs; OK for now but document.",
+    "Customer create POST does not enforce mobile uniqueness even though import does — consider DB unique index on customers.mobile to make both consistent.",
+    "Segment delete is hard-delete with no audit; consider soft-delete (deleted_at) for traceability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase1_segments_export.py (new)"
+  ],
+  "success_rate": {"backend": "100% (13/13 phase1 + 23/23 iter2 regression still pass)", "frontend": "100% on critical Phase-1 testids and downloads"},
+  "test_credentials": "admin@autocrm.kw/admin123, sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "POST /api/seed (idempotent — returned existing seed). Test created 2 imported customers (+96577000001, +96577000002) and 1 segment 'TEST_Phase1Segment' — both cleaned up at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 1 backend regression suite at /app/backend/tests/test_phase1_segments_export.py. Run: pytest /app/backend/tests/ -v. Behavioural segment filters use jobs aggregation (job_count, total_spend=sum totals.total, last_service=max(completed_at,updated_at)). Frontend Segments live at /customers/segments; New Segment modal has vehicle/customer/behaviour filter sections; preview returns count + customers with annotated job_count/total_spend/last_service when behavioural filter active. Wetworks branding present on login and sidebar."
+}

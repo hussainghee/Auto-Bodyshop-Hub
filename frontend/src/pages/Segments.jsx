@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fmtDate, fmtDateTime, API } from "../lib/api";
+import { api, fmtDate, API } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -14,6 +14,9 @@ const emptyFilters = {
   make: "", model: "", year_min: "", year_max: "", color: "", vehicle_type: "",
   created_after: "", created_before: "", city: "",
   has_vehicles: null, recent_days: "",
+  last_service_after: "", last_service_before: "",
+  min_total_spend: "", max_total_spend: "",
+  min_job_count: "", max_job_count: "",
 };
 
 export default function Segments() {
@@ -39,7 +42,8 @@ export default function Segments() {
     const p = {};
     Object.entries(filters).forEach(([k, v]) => {
       if (v === "" || v === null || v === undefined) return;
-      if (["year_min", "year_max", "recent_days"].includes(k)) p[k] = parseInt(v);
+      if (["year_min", "year_max", "recent_days", "min_job_count", "max_job_count"].includes(k)) p[k] = parseInt(v);
+      else if (["min_total_spend", "max_total_spend"].includes(k)) p[k] = parseFloat(v);
       else p[k] = v;
     });
     return p;
@@ -189,6 +193,20 @@ export default function Segments() {
               </div>
             </div>
 
+            <div className="border border-border rounded-sm p-4">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-3">Behaviour Filters (Jobs / Spend)</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div><Label className="text-[10px] uppercase">Last service from</Label><Input type="date" value={filters.last_service_after} onChange={e => setFilters({ ...filters, last_service_after: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-last-service-after" /></div>
+                <div><Label className="text-[10px] uppercase">Last service to</Label><Input type="date" value={filters.last_service_before} onChange={e => setFilters({ ...filters, last_service_before: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-last-service-before" /></div>
+                <div />
+                <div><Label className="text-[10px] uppercase">Min total spend (KWD)</Label><Input type="number" step="0.001" value={filters.min_total_spend} onChange={e => setFilters({ ...filters, min_total_spend: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-min-spend" /></div>
+                <div><Label className="text-[10px] uppercase">Max total spend (KWD)</Label><Input type="number" step="0.001" value={filters.max_total_spend} onChange={e => setFilters({ ...filters, max_total_spend: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-max-spend" /></div>
+                <div />
+                <div><Label className="text-[10px] uppercase">Min job count</Label><Input type="number" value={filters.min_job_count} onChange={e => setFilters({ ...filters, min_job_count: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-min-jobs" /></div>
+                <div><Label className="text-[10px] uppercase">Max job count</Label><Input type="number" value={filters.max_job_count} onChange={e => setFilters({ ...filters, max_job_count: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="filter-max-jobs" /></div>
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <Button type="button" onClick={runPreview} variant="outline" className="border-[#0066FF]/40 text-[#3385FF] rounded-sm" data-testid="preview-btn">Preview Customers</Button>
               {preview && <div className="text-sm text-muted-foreground">Matching: <span className="text-white font-semibold">{preview.count}</span></div>}
@@ -198,11 +216,18 @@ export default function Segments() {
               <div className="border border-border rounded-sm max-h-56 overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead className="text-[10px] uppercase tracking-widest text-muted-foreground bg-[#0a0b0e]">
-                    <tr className="border-b border-border"><th className="text-left px-3 py-2">Name</th><th className="text-left px-3 py-2">Mobile</th><th className="text-left px-3 py-2">City</th><th className="text-left px-3 py-2">Registered</th></tr>
+                    <tr className="border-b border-border"><th className="text-left px-3 py-2">Name</th><th className="text-left px-3 py-2">Mobile</th><th className="text-left px-3 py-2">City</th><th className="text-right px-3 py-2">Jobs</th><th className="text-right px-3 py-2">Spend (KWD)</th><th className="text-left px-3 py-2">Last Service</th></tr>
                   </thead>
                   <tbody data-testid="preview-list">
                     {preview.customers.map(c => (
-                      <tr key={c.id} className="border-b border-border/60"><td className="px-3 py-1.5">{c.name}</td><td className="px-3 py-1.5 font-mono-data text-muted-foreground">{c.mobile}</td><td className="px-3 py-1.5 text-muted-foreground">{c.city || "—"}</td><td className="px-3 py-1.5 text-muted-foreground">{c.created_at ? fmtDateTime(c.created_at) : "—"}</td></tr>
+                      <tr key={c.id} className="border-b border-border/60">
+                        <td className="px-3 py-1.5">{c.name}</td>
+                        <td className="px-3 py-1.5 font-mono-data text-muted-foreground">{c.mobile}</td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{c.city || "—"}</td>
+                        <td className="px-3 py-1.5 text-right font-mono-data">{c.job_count ?? "—"}</td>
+                        <td className="px-3 py-1.5 text-right font-mono-data">{c.total_spend != null ? c.total_spend.toFixed(3) : "—"}</td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{c.last_service ? fmtDate(c.last_service) : "—"}</td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>

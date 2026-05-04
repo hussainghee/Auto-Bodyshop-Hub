@@ -1147,6 +1147,13 @@ class SegmentFilter(BaseModel):
     city: Optional[str] = None
     has_vehicles: Optional[bool] = None
     recent_days: Optional[int] = None
+    # Behavioural filters (joined via jobs collection)
+    last_service_after: Optional[str] = None  # ISO date YYYY-MM-DD
+    last_service_before: Optional[str] = None
+    min_total_spend: Optional[float] = None
+    max_total_spend: Optional[float] = None
+    min_job_count: Optional[int] = None
+    max_job_count: Optional[int] = None
 
 class SegmentIn(BaseModel):
     name: str
@@ -1194,6 +1201,48 @@ async def _apply_segment_filters(f: SegmentFilter):
             all_veh = await db.vehicles.find({}, {"customer_id": 1, "_id": 0}).to_list(20000)
             any_ids = {v["customer_id"] for v in all_veh}
             customers = [c for c in customers if c["id"] not in any_ids]
+
+    # Behavioural filters (jobs aggregation)
+    behavioural_active = any([
+        f.last_service_after, f.last_service_before,
+        f.min_total_spend is not None, f.max_total_spend is not None,
+        f.min_job_count is not None, f.max_job_count is not None,
+    ])
+    if behavioural_active and customers:
+        cust_id_list = [c["id"] for c in customers]
+        jobs_cur = db.jobs.aggregate([
+            {"$match": {"customer_id": {"$in": cust_id_list}}},
+            {"$group": {
+                "_id": "$customer_id",
+                "job_count": {"$sum": 1},
+                "total_spend": {"$sum": {"$ifNull": ["$totals.total", 0]}},
+                "last_service": {"$max": {"$ifNull": ["$completed_at", "$updated_at"]}},
+            }},
+        ])
+        stats = {row["_id"]: row async for row in jobs_cur}
+        las = f.last_service_after
+        lbs = (f.last_service_before + "T23:59:59.999") if f.last_service_before else None
+
+        def keep(c):
+            s = stats.get(c["id"], {"job_count": 0, "total_spend": 0.0, "last_service": None})
+            if f.min_job_count is not None and s["job_count"] < f.min_job_count: return False
+            if f.max_job_count is not None and s["job_count"] > f.max_job_count: return False
+            if f.min_total_spend is not None and (s["total_spend"] or 0) < f.min_total_spend: return False
+            if f.max_total_spend is not None and (s["total_spend"] or 0) > f.max_total_spend: return False
+            if las or lbs:
+                ls = s.get("last_service")
+                if not ls: return False
+                if las and ls < las: return False
+                if lbs and ls > lbs: return False
+            return True
+
+        customers = [c for c in customers if keep(c)]
+        # Annotate with stats for preview
+        for c in customers:
+            s = stats.get(c["id"], {"job_count": 0, "total_spend": 0.0, "last_service": None})
+            c["job_count"] = s["job_count"]
+            c["total_spend"] = round3(s["total_spend"] or 0)
+            c["last_service"] = s["last_service"]
     return customers
 
 @api.post("/segments/preview")
