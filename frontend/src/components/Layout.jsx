@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
   LayoutDashboard, Users, Car, FileText, Wrench, Package,
@@ -37,6 +37,19 @@ export default function Layout() {
     NAV.forEach(n => { if (n.children) init[n.label] = n.children.some(c => loc.pathname === c.to || loc.pathname.startsWith(c.to + "/")); });
     return init;
   });
+  // Keep group open whenever route lands on one of its children
+  useEffect(() => {
+    setOpenGroup(prev => {
+      const next = { ...prev };
+      let changed = false;
+      NAV.forEach(n => {
+        if (n.children && n.children.some(c => loc.pathname === c.to || loc.pathname.startsWith(c.to + "/"))) {
+          if (!next[n.label]) { next[n.label] = true; changed = true; }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [loc.pathname]);
   const items = NAV.filter(n => n.roles.includes(user?.role));
 
   return (
@@ -58,7 +71,7 @@ export default function Layout() {
               return (
                 <div key={item.label}>
                   <button
-                    onClick={() => setOpenGroup({ ...openGroup, [item.label]: !isOpen })}
+                    onClick={() => { if (!anyActive) setOpenGroup({ ...openGroup, [item.label]: !isOpen }); }}
                     className={`nav-link w-full ${anyActive ? "text-white" : ""}`}
                     data-testid={`nav-${item.label.toLowerCase()}-group`}
                   >

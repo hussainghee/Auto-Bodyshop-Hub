@@ -1216,7 +1216,9 @@ async def _apply_segment_filters(f: SegmentFilter):
                 "_id": "$customer_id",
                 "job_count": {"$sum": 1},
                 "total_spend": {"$sum": {"$ifNull": ["$totals.total", 0]}},
-                "last_service": {"$max": {"$ifNull": ["$completed_at", "$updated_at"]}},
+                "last_service": {"$max": {
+                    "$cond": [{"$eq": ["$status", "completed"]}, "$completed_at", None]
+                }},
             }},
         ])
         stats = {row["_id"]: row async for row in jobs_cur}

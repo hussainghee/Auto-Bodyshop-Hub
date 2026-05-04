@@ -28,6 +28,23 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 
 ## What's Been Implemented
 
+### Phase 1 — Wetworks Rebrand + CRM Hardening (2026-05-04)
+- **Branding**: Wetworks logo on login page + sidebar, "Wetworks" / "CRM" wordmark replacing previous AUTO/CRM
+- **Sidebar**: Calendar removed; Customers group with `Customers` + `Segments` children (auto-expands on child routes; toggle is no-op when on an active child)
+- **Dashboard**: Outstanding A/R card removed
+- **Excel exports**: `GET /api/export/customers?q=`, `GET /api/export/vehicles?q&make&model&year&type&color&start&end` — admin/sales only, xlsx download with proper headers
+- **Customer Excel import**: `POST /api/import/customers` (multipart xlsx). Required cols `name`, `mobile`. Skips duplicates by `mobile` (per user choice). Returns `{created, skipped_duplicates, errors[], total_rows}`
+- **Customer Segments module** (`/customers/segments`):
+  - Backend: `POST /segments/preview`, `GET/POST/DELETE /segments`, `GET /segments/:id`, `GET /segments/:id/export`
+  - Filters: vehicle make/model/year_min/year_max/color/type, has_vehicles, city, registered date range, recent_days, **last_service_after/before** (completed jobs only), **min/max_total_spend**, **min/max_job_count**
+  - Aggregation joins to `jobs` collection; preview annotates each customer with `job_count`, `total_spend`, `last_service`
+  - Admin-only delete; export segment members to xlsx
+- **Frontend pages**:
+  - `Customers.jsx` — search, Export, Import (with summary modal showing created/skipped/errors)
+  - `Vehicles.jsx` — search + brand/model/year/type/color/start/end filters + Export
+  - `Segments.jsx` — full CRUD UI with Vehicle / Customer / Behaviour filter sections + preview table (Jobs / Spend / Last Service)
+- **Tests**: `/app/backend/tests/test_phase1_segments_export.py` — 13/13 passing (regression iter2 still 23/23 green)
+
 ### Iteration 1 (Initial MVP, 2026-04-27)
 - JWT auth with 3 seeded roles
 - Customers, Vehicles, VehicleTypes, Services (5 pricing modes) CRUD
@@ -94,7 +111,12 @@ counters     { _id: 'quotation'|'job'|'invoice', seq }
 
 ## Prioritized Backlog (P0 → P2)
 
+### P0 (next)
+- **Push Phase 1 to GitHub** — user requested commit `Phase 1 - Branding navigation customers vehicles`. Use the **Save to Github** button in the chat input.
+
 ### P1 (high value next)
+- P&L-adjacent report: actual meters-used vs meters-billed per roll SKU (tint/PPF leftover analysis)
+- Refactor `server.py` (now 1500+ lines) into modules: auth, customers, vehicles, jobs, quotations, reports, segments, export_import, seed
 - Quotation editing after creation (currently view-only post-create)
 - Inventory movement report with date filter + consumed vs restocked log
 - Receipt print view (filtered "Payment Receipt" per payment entry)
