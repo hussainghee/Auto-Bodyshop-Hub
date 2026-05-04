@@ -7,6 +7,8 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
 
+const LOGO = "https://customer-assets.emergentagent.com/job_vehicle-care-crm/artifacts/d5acrado_Wetworks-Logo.jpeg";
+
 export default function Login() {
   const { user, login } = useAuth();
   const nav = useNavigate();
@@ -41,7 +43,13 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <form onSubmit={submit} className="w-full max-w-sm" data-testid="login-form">
-        <div className="font-display text-5xl font-black tracking-tighter mb-10" data-testid="brand">wetworks</div>
+        <div className="flex items-center gap-3 mb-10">
+          <img src={LOGO} alt="Wetworks" className="w-14 h-14 rounded-sm object-cover" data-testid="brand-logo" />
+          <div>
+            <div className="font-display text-3xl font-black tracking-tighter leading-none" data-testid="brand">Wetworks</div>
+            <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mt-2">CRM</div>
+          </div>
+        </div>
 
         <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-2">Sign In</div>
         <h1 className="font-display text-3xl font-black tracking-tighter mb-8">Welcome back.</h1>

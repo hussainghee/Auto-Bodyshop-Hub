@@ -4,7 +4,7 @@ import { api, fmtKWD, fmtDateTime } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { TrendingUp, Wrench, Clock, AlertTriangle, ArrowUpRight, CreditCard } from "lucide-react";
+import { TrendingUp, Wrench, Clock, AlertTriangle, ArrowUpRight } from "lucide-react";
 
 const MetricCard = ({ label, value, hint, icon: Icon, accent = "#0066FF", testid }) => (
   <div className="border border-border bg-[#0F1115] p-6 rounded-sm transition hover:border-[#0066FF]/50" data-testid={testid}>
@@ -36,11 +36,10 @@ export default function Dashboard() {
     <div data-testid="dashboard-page">
       <PageHeader title="Dashboard" subtitle="Overview" />
       <div className="p-8 space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard label="Today's Jobs" value={data?.todays_jobs ?? "—"} icon={Wrench} testid="metric-todays-jobs" />
           <MetricCard label="Revenue Today" value={data ? fmtKWD(data.revenue_today) : "—"} icon={TrendingUp} accent="#00FF66" testid="metric-revenue" />
           <MetricCard label="Pending Jobs" value={data?.pending_jobs ?? "—"} icon={Clock} accent="#FFCC00" testid="metric-pending" />
-          <MetricCard label="Outstanding A/R" value={data ? fmtKWD(data.outstanding_total) : "—"} icon={CreditCard} accent="#FFCC00" testid="metric-outstanding" />
           <MetricCard label="Customers" value={data?.customers_count ?? "—"} icon={ArrowUpRight} testid="metric-customers" />
         </div>
 

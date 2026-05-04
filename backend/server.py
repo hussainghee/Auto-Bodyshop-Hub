@@ -127,6 +127,7 @@ class CustomerIn(BaseModel):
     mobile: str
     email: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
     notes: Optional[str] = None
     preferred_contact: Literal["mobile", "email", "whatsapp"] = "mobile"
     vehicles: List[CustomerVehicleIn] = []
@@ -311,6 +312,7 @@ async def create_customer(body: CustomerIn, user=Depends(require_roles("admin", 
         "mobile": body.mobile.strip(),
         "email": clean_str(body.email),
         "address": clean_str(body.address),
+        "city": clean_str(body.city),
         "notes": clean_str(body.notes),
         "preferred_contact": body.preferred_contact,
     }
@@ -341,6 +343,7 @@ async def update_customer(cid: str, body: CustomerIn, user=Depends(require_roles
     upd = {
         "name": body.name.strip(), "mobile": body.mobile.strip(),
         "email": clean_str(body.email), "address": clean_str(body.address),
+        "city": clean_str(body.city),
         "notes": clean_str(body.notes), "preferred_contact": body.preferred_contact,
     }
     audit(user, upd, creating=False)
@@ -355,9 +358,46 @@ async def delete_customer(cid: str, user=Depends(require_roles("admin"))):
 
 # ---------------- Vehicles ----------------
 @api.get("/vehicles")
-async def list_vehicles(customer_id: Optional[str] = None, user=Depends(get_current_user)):
-    flt = {"customer_id": customer_id} if customer_id else {}
-    return await db.vehicles.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+async def list_vehicles(customer_id: Optional[str] = None,
+                        q: Optional[str] = None,
+                        make: Optional[str] = None,
+                        model: Optional[str] = None,
+                        year: Optional[int] = None,
+                        vehicle_type: Optional[str] = None,
+                        color: Optional[str] = None,
+                        start: Optional[str] = None,
+                        end: Optional[str] = None,
+                        user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if customer_id: flt["customer_id"] = customer_id
+    if make: flt["make"] = {"$regex": f"^{make}$", "$options": "i"}
+    if model: flt["model"] = {"$regex": f"^{model}$", "$options": "i"}
+    if year: flt["year"] = year
+    if vehicle_type: flt["vehicle_type"] = vehicle_type
+    if color: flt["color"] = {"$regex": f"^{color}$", "$options": "i"}
+    if start or end:
+        rng: Dict[str, Any] = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end + "T23:59:59.999"
+        flt["created_at"] = rng
+    rows = await db.vehicles.find(flt, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    if q:
+        ql = q.lower()
+        # enrich with customer name/mobile for search
+        cust_ids = list({r["customer_id"] for r in rows if r.get("customer_id")})
+        custs = await db.customers.find({"id": {"$in": cust_ids}}, {"_id": 0, "id": 1, "name": 1, "mobile": 1}).to_list(2000) if cust_ids else []
+        cmap = {c["id"]: c for c in custs}
+        def matches(v):
+            hay = " ".join([
+                str(v.get("make", "")), str(v.get("model", "")),
+                str(v.get("year", "") or ""), str(v.get("plate", "") or ""),
+                str(v.get("vin", "") or ""),
+                cmap.get(v.get("customer_id"), {}).get("name", "") or "",
+                cmap.get(v.get("customer_id"), {}).get("mobile", "") or "",
+            ]).lower()
+            return ql in hay
+        rows = [r for r in rows if matches(r)]
+    return rows
 
 @api.post("/vehicles")
 async def create_vehicle(body: VehicleIn, user=Depends(require_roles("admin", "sales"))):
@@ -977,6 +1017,237 @@ async def customer_history(cid: str, start: Optional[str] = None, end: Optional[
     quotations = await db.quotations.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
     total_spent = round3(sum(j.get("total", 0) for j in jobs if j.get("status") == "completed"))
     return {"jobs": jobs, "quotations": quotations, "total_spent": total_spent, "visits": len([j for j in jobs if j.get("status") == "completed"])}
+
+# ---------------- Excel Import/Export ----------------
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook, load_workbook
+
+def _xlsx_stream(wb, filename: str):
+    buf = BytesIO()
+    wb.save(buf); buf.seek(0)
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@api.get("/export/customers")
+async def export_customers(q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+    flt: Dict[str, Any] = {}
+    if q:
+        flt["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"mobile": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+        ]
+    customers = await db.customers.find(flt, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Customers"
+    headers = ["Name", "Mobile", "Email", "Address", "City", "Notes", "Preferred Contact", "Created At"]
+    ws.append(headers)
+    for c in customers:
+        ws.append([c.get("name"), c.get("mobile"), c.get("email") or "",
+                   c.get("address") or "", c.get("city") or "", c.get("notes") or "",
+                   c.get("preferred_contact") or "", c.get("created_at") or ""])
+    return _xlsx_stream(wb, f"customers_{datetime.now().strftime('%Y%m%d')}.xlsx")
+
+@api.post("/import/customers")
+async def import_customers(file: UploadFile = File(...), user=Depends(require_roles("admin", "sales"))):
+    try:
+        content = await file.read()
+        wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid xlsx: {e}")
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {"created": 0, "errors": ["Empty file"]}
+    header = [str(h or "").strip().lower() for h in rows[0]]
+    def col(r, *names):
+        for n in names:
+            if n in header:
+                v = r[header.index(n)]
+                return str(v).strip() if v is not None else ""
+        return ""
+    created, skipped, errors = 0, 0, []
+    for i, r in enumerate(rows[1:], start=2):
+        if not r or all(v is None or str(v).strip() == "" for v in r):
+            continue
+        name = col(r, "name", "customer name")
+        mobile = col(r, "mobile", "mobile number", "phone")
+        if not name or not mobile:
+            errors.append(f"Row {i}: Name and Mobile are required")
+            continue
+        if await db.customers.find_one({"mobile": mobile}):
+            skipped += 1
+            continue
+        doc = {
+            "id": new_id(), "name": name, "mobile": mobile,
+            "email": col(r, "email") or None,
+            "address": col(r, "address") or None,
+            "city": col(r, "city", "area") or None,
+            "notes": col(r, "notes") or None,
+            "preferred_contact": (col(r, "preferred contact", "preferred_contact") or "mobile").lower(),
+        }
+        if doc["preferred_contact"] not in ("mobile", "email", "whatsapp"):
+            doc["preferred_contact"] = "mobile"
+        audit(user, doc)
+        await db.customers.insert_one(doc.copy())
+        created += 1
+    return {"created": created, "skipped_duplicates": skipped, "errors": errors,
+            "total_rows": len(rows) - 1}
+
+@api.get("/export/vehicles")
+async def export_vehicles(q: Optional[str] = None, make: Optional[str] = None,
+                          model: Optional[str] = None, year: Optional[int] = None,
+                          vehicle_type: Optional[str] = None, color: Optional[str] = None,
+                          start: Optional[str] = None, end: Optional[str] = None,
+                          user=Depends(require_roles("admin", "sales"))):
+    flt: Dict[str, Any] = {}
+    if make: flt["make"] = {"$regex": f"^{make}$", "$options": "i"}
+    if model: flt["model"] = {"$regex": f"^{model}$", "$options": "i"}
+    if year: flt["year"] = year
+    if vehicle_type: flt["vehicle_type"] = vehicle_type
+    if color: flt["color"] = {"$regex": f"^{color}$", "$options": "i"}
+    if start or end:
+        rng: Dict[str, Any] = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end + "T23:59:59.999"
+        flt["created_at"] = rng
+    vehicles = await db.vehicles.find(flt, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    cust_ids = list({v["customer_id"] for v in vehicles if v.get("customer_id")})
+    custs = await db.customers.find({"id": {"$in": cust_ids}}, {"_id": 0}).to_list(5000) if cust_ids else []
+    cmap = {c["id"]: c for c in custs}
+    if q:
+        ql = q.lower()
+        def m(v):
+            hay = " ".join([str(v.get(k, "") or "") for k in ("make", "model", "year", "plate", "vin")] +
+                           [cmap.get(v.get("customer_id"), {}).get("name", "") or "",
+                            cmap.get(v.get("customer_id"), {}).get("mobile", "") or ""]).lower()
+            return ql in hay
+        vehicles = [v for v in vehicles if m(v)]
+    wb = Workbook(); ws = wb.active; ws.title = "Vehicles"
+    ws.append(["Make", "Model", "Year", "Plate", "VIN/Chassis", "Color", "Type",
+               "Customer Name", "Customer Mobile", "Created At"])
+    for v in vehicles:
+        c = cmap.get(v.get("customer_id"), {})
+        ws.append([v.get("make"), v.get("model"), v.get("year") or "",
+                   v.get("plate") or "", v.get("vin") or "", v.get("color") or "",
+                   v.get("vehicle_type") or "", c.get("name") or "", c.get("mobile") or "",
+                   v.get("created_at") or ""])
+    return _xlsx_stream(wb, f"vehicles_{datetime.now().strftime('%Y%m%d')}.xlsx")
+
+# ---------------- Segments ----------------
+class SegmentFilter(BaseModel):
+    make: Optional[str] = None
+    model: Optional[str] = None
+    year_min: Optional[int] = None
+    year_max: Optional[int] = None
+    color: Optional[str] = None
+    vehicle_type: Optional[str] = None
+    created_after: Optional[str] = None
+    created_before: Optional[str] = None
+    city: Optional[str] = None
+    has_vehicles: Optional[bool] = None
+    recent_days: Optional[int] = None
+
+class SegmentIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    filters: SegmentFilter = Field(default_factory=SegmentFilter)
+
+async def _apply_segment_filters(f: SegmentFilter):
+    cust_flt: Dict[str, Any] = {}
+    if f.city:
+        cust_flt["$or"] = [
+            {"city": {"$regex": f.city, "$options": "i"}},
+            {"address": {"$regex": f.city, "$options": "i"}},
+        ]
+    if f.created_after or f.created_before or f.recent_days:
+        rng: Dict[str, Any] = {}
+        if f.created_after: rng["$gte"] = f.created_after
+        if f.created_before: rng["$lte"] = f.created_before + "T23:59:59.999"
+        if f.recent_days:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=f.recent_days)).isoformat()
+            rng["$gte"] = max(rng.get("$gte", ""), cutoff) if rng.get("$gte") else cutoff
+        cust_flt["created_at"] = rng
+    customers = await db.customers.find(cust_flt, {"_id": 0}).to_list(10000)
+
+    veh_filters_active = any([f.make, f.model, f.year_min, f.year_max, f.color, f.vehicle_type])
+    if veh_filters_active or f.has_vehicles is not None:
+        vflt: Dict[str, Any] = {}
+        if f.make: vflt["make"] = {"$regex": f"^{f.make}$", "$options": "i"}
+        if f.model: vflt["model"] = {"$regex": f"^{f.model}$", "$options": "i"}
+        if f.color: vflt["color"] = {"$regex": f"^{f.color}$", "$options": "i"}
+        if f.vehicle_type: vflt["vehicle_type"] = f.vehicle_type
+        if f.year_min or f.year_max:
+            yr: Dict[str, Any] = {}
+            if f.year_min: yr["$gte"] = f.year_min
+            if f.year_max: yr["$lte"] = f.year_max
+            vflt["year"] = yr
+        vehicles = await db.vehicles.find(vflt, {"_id": 0}).to_list(20000)
+        cust_ids_with_match = {v["customer_id"] for v in vehicles}
+        if veh_filters_active:
+            customers = [c for c in customers if c["id"] in cust_ids_with_match]
+        if f.has_vehicles is True and not veh_filters_active:
+            all_veh = await db.vehicles.find({}, {"customer_id": 1, "_id": 0}).to_list(20000)
+            any_ids = {v["customer_id"] for v in all_veh}
+            customers = [c for c in customers if c["id"] in any_ids]
+        elif f.has_vehicles is False:
+            all_veh = await db.vehicles.find({}, {"customer_id": 1, "_id": 0}).to_list(20000)
+            any_ids = {v["customer_id"] for v in all_veh}
+            customers = [c for c in customers if c["id"] not in any_ids]
+    return customers
+
+@api.post("/segments/preview")
+async def segment_preview(body: SegmentFilter, user=Depends(require_roles("admin", "sales"))):
+    customers = await _apply_segment_filters(body)
+    return {"count": len(customers), "customers": customers}
+
+@api.get("/segments")
+async def list_segments(user=Depends(require_roles("admin", "sales"))):
+    rows = await db.segments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for r in rows:
+        by = await db.users.find_one({"id": r.get("created_by")}, {"_id": 0, "name": 1})
+        r["created_by_name"] = by.get("name") if by else ""
+    return rows
+
+@api.post("/segments")
+async def create_segment(body: SegmentIn, user=Depends(require_roles("admin", "sales"))):
+    customers = await _apply_segment_filters(body.filters)
+    doc = {
+        "id": new_id(), "name": body.name.strip(),
+        "description": clean_str(body.description),
+        "filters": body.filters.model_dump(),
+        "customer_count": len(customers),
+    }
+    audit(user, doc)
+    await db.segments.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/segments/{sid}")
+async def get_segment(sid: str, user=Depends(require_roles("admin", "sales"))):
+    s = await db.segments.find_one({"id": sid}, {"_id": 0})
+    if not s: raise HTTPException(404)
+    s["customers"] = await _apply_segment_filters(SegmentFilter(**s["filters"]))
+    return s
+
+@api.delete("/segments/{sid}")
+async def delete_segment(sid: str, user=Depends(require_roles("admin"))):
+    await db.segments.delete_one({"id": sid})
+    return {"ok": True}
+
+@api.get("/segments/{sid}/export")
+async def export_segment(sid: str, user=Depends(require_roles("admin", "sales"))):
+    s = await db.segments.find_one({"id": sid}, {"_id": 0})
+    if not s: raise HTTPException(404)
+    customers = await _apply_segment_filters(SegmentFilter(**s["filters"]))
+    wb = Workbook(); ws = wb.active; ws.title = (s["name"] or "Segment")[:31]
+    ws.append(["Name", "Mobile", "Email", "Address", "City", "Notes", "Preferred Contact", "Created At"])
+    for c in customers:
+        ws.append([c.get("name"), c.get("mobile"), c.get("email") or "",
+                   c.get("address") or "", c.get("city") or "", c.get("notes") or "",
+                   c.get("preferred_contact") or "", c.get("created_at") or ""])
+    safe = "".join(ch for ch in s["name"] if ch.isalnum() or ch in ("-", "_")) or "segment"
+    return _xlsx_stream(wb, f"segment_{safe}_{datetime.now().strftime('%Y%m%d')}.xlsx")
 
 # ---------------- File serving ----------------
 @api.get("/files/{fname}")

@@ -16,7 +16,7 @@ import JobDetail from "./pages/JobDetail";
 import Receipt from "./pages/Receipt";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
-import Calendar from "./pages/Calendar";
+import Segments from "./pages/Segments";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
@@ -39,6 +39,7 @@ function App() {
             <Route element={<Protected><Layout /></Protected>}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/customers" element={<Customers />} />
+              <Route path="/customers/segments" element={<Protected roles={["admin","sales"]}><Segments /></Protected>} />
               <Route path="/customers/:id" element={<CustomerDetail />} />
               <Route path="/vehicles" element={<Vehicles />} />
               <Route path="/vehicles/:id" element={<VehicleDetail />} />
@@ -49,7 +50,6 @@ function App() {
               <Route path="/jobs/:jid/receipts/:pid" element={<Receipt />} />
               <Route path="/inventory" element={<Protected roles={["admin","sales"]}><Inventory /></Protected>} />
               <Route path="/services" element={<Protected roles={["admin"]}><Services /></Protected>} />
-              <Route path="/calendar" element={<Calendar />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />
             </Route>
