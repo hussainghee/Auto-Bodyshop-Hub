@@ -22,8 +22,14 @@ const NAV = [
   { to: "/vehicles", label: "Vehicles", icon: Car, roles: ["admin","sales"] },
   { to: "/quotations", label: "Quotations", icon: FileText, roles: ["admin","sales"] },
   { to: "/jobs", label: "Job Cards", icon: Wrench, roles: ["admin","sales","technician"] },
-  { to: "/inventory", label: "Inventory", icon: Package, roles: ["admin","sales"] },
-  { to: "/services", label: "Services & Pricing", icon: SlidersHorizontal, roles: ["admin"] },
+  {
+    label: "Inventory", icon: Package, roles: ["admin","sales"],
+    children: [
+      { to: "/inventory/categories", label: "Categories" },
+      { to: "/inventory", label: "Products" },
+    ],
+  },
+  { to: "/services", label: "Services", icon: SlidersHorizontal, roles: ["admin"] },
   { to: "/reports", label: "Reports", icon: BarChart3, roles: ["admin","sales"] },
   { to: "/settings", label: "Settings", icon: SetIcon, roles: ["admin"] },
 ];

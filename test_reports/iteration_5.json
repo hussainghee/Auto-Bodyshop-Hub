@@ -1,0 +1,42 @@
+{
+  "summary": "Phase 3 Wetworks CRM tested (Inventory Categories + Products, Service Categories + legacy free-form, Payments report + Excel export). Backend: 26/26 new Phase-3 tests PASS in isolation; full regression 89/90 (one ordering-dependent failure in test_default_uncategorized_present_with_migrated_products — see minor issue #1). Frontend: all critical selectors and flows PASS — Inventory sidebar is a group (Categories + Products), Services nav label shows 'Services' (no 'Pricing'), /inventory/categories renders with Uncategorized default, New Category dialog creates successfully, /inventory renders as Products with search/filters/export/new-product, /services has tab-services/tab-svc-categories with working svc-cat-form + New Service category dropdown, /reports has tab-overview + tab-payments with KPIs/table/method+receivedBy filters/export, date defaults = today (2026-05-05). Previous critical bug from iter4 (legacy {discount:float} regression) is FIXED — verified by passing test_iter2_backend.py::test_invoice_edit_recalculates.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/seed", "issue": "Seed-inserted inventory items (4 Kuwait seed items) are inserted with legacy 'category' string but NO category_id. The startup migration _migrate_inv_to_default only runs on backend startup, so a reseed after startup leaves inventory with no category_id → GET /api/inventory-categories returns Uncategorized.product_count=0 until the backend is restarted. Fix: either call _migrate_inv_to_default() at the end of the /seed handler, OR insert seed inventory with category_id=await _ensure_default_inv_category(). This causes the one failing test in the full-suite run; in isolation the assertion passes because migration had already run. Priority: LOW (functional once migrated, visible only after reseed)."},
+      {"endpoint": "GET /api/reports/payments", "issue": "Payments report endpoint requires admin/sales — returns 403 for technicians. Spec is silent but documenting the behaviour. No action needed unless tech needs access."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_inventory_services_payments.py",
+    "/app/test_reports/pytest/phase3_results.xml",
+    "/app/test_reports/pytest/phase3_full_results.xml"
+  ],
+  "action_items": [
+    "Backend (minor): in POST /api/seed, either await _migrate_inv_to_default() at the end or insert seed inventory with category_id pre-populated, so Uncategorized.product_count is correct immediately after reseed without a backend restart."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 2041 lines — still recommend splitting into modules (auth, customers, vehicles, quotations, jobs, inventory, services, reports). Carried from iter3/iter4.",
+    "POST /api/inventory — accepts the full new-field payload (sku/name/category_id/cost_price/selling_price/stock_qty/reorder_level/unit/active) and auto-assigns default category when category_id is omitted. reorder_level correctly mirrors low_stock_threshold on create AND on patch (verified).",
+    "DELETE /api/inventory-categories correctly blocks (400) deletion of is_default or categories with linked products, and succeeds on empty user-created categories (verified all three branches).",
+    "ServiceIn still requires legacy fields 'category' (string) and 'pricing_mode' — this is fine as the free-form category is intentionally kept for backwards-compat. New category_id accepted alongside. Frontend composes both for the payload.",
+    "GET /api/reports/payments default-to-today logic is correct; filters method/received_by/date-range all work; row shape (payment_date/job_number/invoice_number/customer_name/customer_mobile/vehicle_plate/method/amount/balance_due/received_by) matches spec.",
+    "Inventory list enrichment: when a product has no category_id but has a legacy 'category' string, category_name falls back to the legacy string — good defensive behaviour.",
+    "Payments report by_method always emits cash/knet/credit_card keys with 0 fallback — good for stable frontend KPI rendering."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_inventory_services_payments.py (new — 26 tests, 26/26 pass)"
+  ],
+  "success_rate": {"backend": "100% on Phase-3 suite in isolation (26/26); 98.9% on full regression (89/90 — the 1 failure is a seed/restart ordering issue, not a feature bug)", "frontend": "100% on Phase-3 critical selectors and flows"},
+  "test_credentials": "admin@autocrm.kw/admin123, sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 (per /app/memory/test_credentials.md).",
+  "seed_data_creation": "Tests create/delete TEST_invcat_*, TEST_invcat_patch_*, TEST_invcat_linked_*, TEST_invcat_del_*, TEST_SKU-*, TEST-AUTO-*, TEST-PATCH-*, TEST_svccat_*, TEST_svc_legacy_* (all cleaned up). UI test created 1 TEST_UI_Cat_* inventory category and 1 TEST_UI_SvcCat_* service category that may persist.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-3 regression suite is at /app/backend/tests/test_phase3_inventory_services_payments.py (26 tests). Run entire backend regression with `pytest /app/backend/tests/ -v` — expect 90/90 if backend was freshly restarted after the last seed, else 89/90 due to the seed/migration ordering issue noted. All Phase-3 UI testids (nav-inventory-group, nav-categories, nav-products, inv-categories-page, new-inv-cat-btn, inv-cat-name, inv-cat-save, inventory-page, inv-search, inv-filter-category, inv-filter-status, export-inventory, new-inv-btn, services-page, tab-services, tab-svc-categories, new-svc-cat-btn, svc-cat-form, svc-cat-name, svc-cat-save, new-service-btn, svc-category, reports-page, tab-overview, tab-payments, report-start, report-end, payments-method, payments-received-by, payments-table, payments-report, export-payments) exist and behave as documented. Login redirect goes to '/' (landing) not '/dashboard', so use wait_for_timeout rather than wait_for_url after login.",
+  "rca of the issue": "The only failing test in the full-suite run (test_default_uncategorized_present_with_migrated_products) is caused by a seed-vs-migration ordering mismatch: seed inserts inventory items with only legacy 'category' string (no category_id), while _migrate_inv_to_default only runs on backend startup. When pytest triggers a reseed via earlier tests (phase1/iter2), the new inventory items have no category_id, so Uncategorized.product_count becomes 0 until the backend is restarted. Reproduction: POST /api/seed?reseed=true → GET /api/inventory-categories → product_count=0. Mitigation: inside POST /api/seed, call `await _migrate_inv_to_default()` after inserting inventory, OR insert seed inventory with `category_id=await _ensure_default_inv_category()` directly."
+}

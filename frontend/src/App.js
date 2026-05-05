@@ -15,6 +15,7 @@ import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
 import Receipt from "./pages/Receipt";
 import Inventory from "./pages/Inventory";
+import InventoryCategories from "./pages/InventoryCategories";
 import Services from "./pages/Services";
 import Segments from "./pages/Segments";
 import SegmentDetail from "./pages/SegmentDetail";
@@ -51,6 +52,7 @@ function App() {
               <Route path="/jobs/:id" element={<JobDetail />} />
               <Route path="/jobs/:jid/receipts/:pid" element={<Receipt />} />
               <Route path="/inventory" element={<Protected roles={["admin","sales"]}><Inventory /></Protected>} />
+              <Route path="/inventory/categories" element={<Protected roles={["admin","sales"]}><InventoryCategories /></Protected>} />
               <Route path="/services" element={<Protected roles={["admin"]}><Services /></Protected>} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />

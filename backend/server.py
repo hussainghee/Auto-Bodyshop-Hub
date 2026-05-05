@@ -164,7 +164,8 @@ class VehicleMakeIn(BaseModel):
 
 class ServiceIn(BaseModel):
     name: str
-    category: Literal["paint_protection", "tint", "full_body_paint", "car_wash", "mobile_car_wash", "bundle", "other"]
+    category: str  # legacy / display label (now free-form)
+    category_id: Optional[str] = None  # new FK to service_categories
     pricing_mode: Literal["per_vehicle_type", "per_panel", "per_glass_area", "full_vehicle", "fixed"]
     description: Optional[str] = None
     fixed_price: Optional[float] = None
@@ -175,6 +176,9 @@ class ServiceIn(BaseModel):
     is_bundle: bool = False
     bundle_items: List[str] = []  # service IDs included in bundle (display only)
     active: bool = True
+    requires_panel: Optional[bool] = None  # derived from pricing_mode if None
+    requires_glass: Optional[bool] = None
+    applicable_vehicle_types: List[str] = []  # empty = all
 
 class QuotationLineIn(BaseModel):
     service_id: str
@@ -239,12 +243,25 @@ class JobInternalNotesIn(BaseModel):
 class InventoryIn(BaseModel):
     sku: str
     name: str
-    category: str
+    category: Optional[str] = None  # legacy free-text
+    category_id: Optional[str] = None  # new FK to inventory_categories
     unit: str = "pcs"
     cost_price: float = 0
     selling_price: float = 0
     stock_qty: float = 0
     low_stock_threshold: float = 5
+    active: bool = True
+    reorder_level: Optional[float] = None  # alias for low_stock_threshold
+
+class InventoryCategoryIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    active: bool = True
+
+class ServiceCategoryIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    active: bool = True
 
 class AppointmentIn(BaseModel):
     customer_id: str
@@ -971,20 +988,188 @@ async def upload_area_image(file: UploadFile = File(...), user=Depends(get_curre
         shutil.copyfileobj(file.file, f)
     return {"url": f"/api/files/{fname}"}
 
+# ---------------- Inventory Categories ----------------
+async def _ensure_default_inv_category() -> str:
+    """Returns id of the 'Uncategorized' inventory category, creating it if missing."""
+    cat = await db.inventory_categories.find_one({"name": "Uncategorized"}, {"_id": 0})
+    if cat:
+        return cat["id"]
+    doc = {"id": new_id(), "name": "Uncategorized", "description": "Default category for unclassified items",
+           "active": True, "created_at": now_iso(), "updated_at": now_iso(), "is_default": True}
+    await db.inventory_categories.insert_one(doc.copy())
+    return doc["id"]
+
+@api.get("/inventory-categories")
+async def list_inv_categories(q: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if q: flt["name"] = {"$regex": q, "$options": "i"}
+    rows = await db.inventory_categories.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
+    user_ids = list({r.get("created_by") for r in rows if r.get("created_by")})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if user_ids else []
+    uname = {u["id"]: u["name"] for u in users}
+    cat_ids = [r["id"] for r in rows]
+    counts = {}
+    if cat_ids:
+        agg = db.inventory.aggregate([
+            {"$match": {"category_id": {"$in": cat_ids}}},
+            {"$group": {"_id": "$category_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] async for r in agg}
+    for r in rows:
+        r["created_by_name"] = uname.get(r.get("created_by"), "")
+        r["product_count"] = counts.get(r["id"], 0)
+    return rows
+
+@api.post("/inventory-categories")
+async def create_inv_category(body: InventoryCategoryIn, user=Depends(require_roles("admin", "sales"))):
+    if await db.inventory_categories.find_one({"name": body.name.strip()}):
+        raise HTTPException(400, "Category name already exists")
+    doc = {"id": new_id(), "name": body.name.strip(),
+           "description": clean_str(body.description), "active": body.active}
+    audit(user, doc)
+    await db.inventory_categories.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/inventory-categories/{cid}")
+async def update_inv_category(cid: str, body: InventoryCategoryIn, user=Depends(require_roles("admin", "sales"))):
+    upd = {"name": body.name.strip(), "description": clean_str(body.description), "active": body.active}
+    audit(user, upd, creating=False)
+    await db.inventory_categories.update_one({"id": cid}, {"$set": upd})
+    return await db.inventory_categories.find_one({"id": cid}, {"_id": 0})
+
+@api.delete("/inventory-categories/{cid}")
+async def delete_inv_category(cid: str, user=Depends(require_roles("admin"))):
+    cat = await db.inventory_categories.find_one({"id": cid}, {"_id": 0})
+    if not cat: raise HTTPException(404)
+    if cat.get("is_default"):
+        raise HTTPException(400, "Cannot delete the default category. You can mark it inactive instead.")
+    linked = await db.inventory.count_documents({"category_id": cid})
+    if linked:
+        raise HTTPException(400, f"Cannot delete: {linked} product(s) linked. Mark inactive or reassign products.")
+    await db.inventory_categories.delete_one({"id": cid})
+    return {"ok": True}
+
+@api.get("/export/inventory-categories")
+async def export_inv_categories(q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+    flt: Dict[str, Any] = {}
+    if q: flt["name"] = {"$regex": q, "$options": "i"}
+    rows = await db.inventory_categories.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
+    cat_ids = [r["id"] for r in rows]
+    counts = {}
+    if cat_ids:
+        agg = db.inventory.aggregate([
+            {"$match": {"category_id": {"$in": cat_ids}}},
+            {"$group": {"_id": "$category_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] async for r in agg}
+    wb = Workbook(); ws = wb.active; ws.title = "Inventory Categories"
+    ws.append(["Name", "Description", "Status", "Products", "Created At"])
+    for r in rows:
+        ws.append([r.get("name"), r.get("description") or "",
+                   "Active" if r.get("active", True) else "Inactive",
+                   counts.get(r["id"], 0), r.get("created_at") or ""])
+    return _xlsx_stream(wb, f"inventory_categories_{datetime.now().strftime('%Y%m%d')}.xlsx")
+
+# ---------------- Service Categories ----------------
+@api.get("/service-categories")
+async def list_svc_categories(q: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if q: flt["name"] = {"$regex": q, "$options": "i"}
+    rows = await db.service_categories.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
+    user_ids = list({r.get("created_by") for r in rows if r.get("created_by")})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if user_ids else []
+    uname = {u["id"]: u["name"] for u in users}
+    cat_ids = [r["id"] for r in rows]
+    counts = {}
+    if cat_ids:
+        agg = db.services.aggregate([
+            {"$match": {"category_id": {"$in": cat_ids}}},
+            {"$group": {"_id": "$category_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] async for r in agg}
+    for r in rows:
+        r["created_by_name"] = uname.get(r.get("created_by"), "")
+        r["service_count"] = counts.get(r["id"], 0)
+    return rows
+
+@api.post("/service-categories")
+async def create_svc_category(body: ServiceCategoryIn, user=Depends(require_roles("admin"))):
+    if await db.service_categories.find_one({"name": body.name.strip()}):
+        raise HTTPException(400, "Category name already exists")
+    doc = {"id": new_id(), "name": body.name.strip(),
+           "description": clean_str(body.description), "active": body.active}
+    audit(user, doc)
+    await db.service_categories.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/service-categories/{cid}")
+async def update_svc_category(cid: str, body: ServiceCategoryIn, user=Depends(require_roles("admin"))):
+    upd = {"name": body.name.strip(), "description": clean_str(body.description), "active": body.active}
+    audit(user, upd, creating=False)
+    await db.service_categories.update_one({"id": cid}, {"$set": upd})
+    return await db.service_categories.find_one({"id": cid}, {"_id": 0})
+
+@api.delete("/service-categories/{cid}")
+async def delete_svc_category(cid: str, user=Depends(require_roles("admin"))):
+    linked = await db.services.count_documents({"category_id": cid})
+    if linked:
+        raise HTTPException(400, f"Cannot delete: {linked} service(s) linked. Mark inactive or reassign services.")
+    await db.service_categories.delete_one({"id": cid})
+    return {"ok": True}
+
 # ---------------- Inventory ----------------
 @api.get("/inventory")
-async def list_inventory(user=Depends(get_current_user)):
-    return await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(2000)
+async def list_inventory(q: Optional[str] = None, category_id: Optional[str] = None,
+                         status_: Optional[str] = Query(None, alias="status"),
+                         user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if category_id and category_id != "all":
+        flt["category_id"] = category_id
+    if status_ == "active": flt["active"] = {"$ne": False}
+    elif status_ == "inactive": flt["active"] = False
+    rows = await db.inventory.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r.get("sku") or "").lower()
+                or ql in (r.get("name") or "").lower()
+                or ql in (r.get("category") or "").lower()
+                or ql in str(r.get("selling_price") or "")
+                or ql in str(r.get("cost_price") or "")]
+    # enrich with category name
+    cat_ids = list({r["category_id"] for r in rows if r.get("category_id")})
+    cats = await db.inventory_categories.find({"id": {"$in": cat_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if cat_ids else []
+    cmap = {c["id"]: c["name"] for c in cats}
+    for r in rows:
+        r["category_name"] = cmap.get(r.get("category_id"), r.get("category") or "")
+        r["reorder_level"] = r.get("reorder_level", r.get("low_stock_threshold", 0))
+    return rows
+
+async def _migrate_inv_to_default():
+    """One-time migration: items without category_id → default category."""
+    default_id = await _ensure_default_inv_category()
+    await db.inventory.update_many(
+        {"$or": [{"category_id": {"$exists": False}}, {"category_id": None}, {"category_id": ""}]},
+        {"$set": {"category_id": default_id, "active": True}})
 
 @api.post("/inventory")
 async def create_inv(body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
-    doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
+    doc = body.model_dump()
+    if not doc.get("category_id"):
+        doc["category_id"] = await _ensure_default_inv_category()
+    if doc.get("reorder_level") is not None:
+        doc["low_stock_threshold"] = doc["reorder_level"]
+    doc["id"] = new_id(); audit(user, doc)
     await db.inventory.insert_one(doc.copy())
     doc.pop("_id", None); return doc
 
 @api.patch("/inventory/{iid}")
 async def update_inv(iid: str, body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
-    upd = body.model_dump(); audit(user, upd, creating=False)
+    upd = body.model_dump()
+    if not upd.get("category_id"):
+        upd["category_id"] = await _ensure_default_inv_category()
+    if upd.get("reorder_level") is not None:
+        upd["low_stock_threshold"] = upd["reorder_level"]
+    audit(user, upd, creating=False)
     await db.inventory.update_one({"id": iid}, {"$set": upd})
     return await db.inventory.find_one({"id": iid}, {"_id": 0})
 
@@ -992,6 +1177,39 @@ async def update_inv(iid: str, body: InventoryIn, user=Depends(require_roles("ad
 async def delete_inv(iid: str, user=Depends(require_roles("admin"))):
     await db.inventory.delete_one({"id": iid})
     return {"ok": True}
+
+@api.get("/export/inventory")
+async def export_inventory(q: Optional[str] = None, category_id: Optional[str] = None,
+                           status_: Optional[str] = Query(None, alias="status"),
+                           user=Depends(require_roles("admin", "sales"))):
+    flt: Dict[str, Any] = {}
+    if category_id and category_id != "all":
+        flt["category_id"] = category_id
+    if status_ == "active": flt["active"] = {"$ne": False}
+    elif status_ == "inactive": flt["active"] = False
+    rows = await db.inventory.find(flt, {"_id": 0}).sort("name", 1).to_list(10000)
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r.get("sku") or "").lower()
+                or ql in (r.get("name") or "").lower()
+                or ql in (r.get("category") or "").lower()]
+    cats = await db.inventory_categories.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    cmap = {c["id"]: c["name"] for c in cats}
+    wb = Workbook(); ws = wb.active; ws.title = "Inventory"
+    ws.append(["SKU", "Name", "Category", "Unit", "Cost Price (KWD)", "Selling Price (KWD)",
+               "Stock Qty", "Reorder Level", "Status", "Created At"])
+    for r in rows:
+        cat_name = cmap.get(r.get("category_id"), r.get("category") or "")
+        ws.append([r.get("sku"), r.get("name"), cat_name, r.get("unit"),
+                   r.get("cost_price", 0), r.get("selling_price", 0),
+                   r.get("stock_qty", 0),
+                   r.get("reorder_level", r.get("low_stock_threshold", 0)),
+                   "Active" if r.get("active", True) else "Inactive",
+                   r.get("created_at") or ""])
+    suffix = ""
+    if category_id and category_id != "all":
+        cn = cmap.get(category_id, "category"); suffix = "_" + "".join(ch for ch in cn if ch.isalnum())
+    return _xlsx_stream(wb, f"inventory{suffix}_{datetime.now().strftime('%Y%m%d')}.xlsx")
 
 # ---------------- Appointments ----------------
 @api.get("/appointments")
@@ -1058,6 +1276,91 @@ async def notifications(user=Depends(get_current_user)):
         "total_outstanding": round3(total_outstanding),
         "count": len(low_stock) + len(overdue_inprog) + len(overdue_confirmed) + len(pending_q) + len(expired_quotes) + len(outstanding),
     }
+
+@api.get("/reports/payments")
+async def payments_report(
+    start: Optional[str] = None, end: Optional[str] = None,
+    method: Optional[str] = None,
+    received_by: Optional[str] = None,
+    user=Depends(require_roles("admin", "sales")),
+):
+    # Default to TODAY if no date range supplied
+    if not start and not end:
+        today = datetime.now(timezone.utc).date().isoformat()
+        start = today; end = today
+    rng_lo = start + "T00:00:00" if start else None
+    rng_hi = (end + "T23:59:59.999") if end else None
+    jobs = await db.jobs.find({"payments.0": {"$exists": True}}, {"_id": 0}).to_list(20000)
+    cust_ids = list({j["customer_id"] for j in jobs if j.get("customer_id")})
+    veh_ids = list({j["vehicle_id"] for j in jobs if j.get("vehicle_id")})
+    custs = await db.customers.find({"id": {"$in": cust_ids}}, {"_id": 0, "id": 1, "name": 1, "mobile": 1}).to_list(5000) if cust_ids else []
+    vehs = await db.vehicles.find({"id": {"$in": veh_ids}}, {"_id": 0, "id": 1, "plate": 1, "make": 1, "model": 1}).to_list(5000) if veh_ids else []
+    cmap = {c["id"]: c for c in custs}
+    vmap = {v["id"]: v for v in vehs}
+    user_ids = list({p.get("recorded_by") for j in jobs for p in j.get("payments", []) if p.get("recorded_by")})
+    users_docs = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if user_ids else []
+    umap = {u["id"]: u["name"] for u in users_docs}
+
+    flat: List[Dict[str, Any]] = []
+    for j in jobs:
+        cust = cmap.get(j.get("customer_id"), {})
+        veh = vmap.get(j.get("vehicle_id"), {})
+        for p in j.get("payments", []):
+            ra = p.get("recorded_at") or ""
+            if rng_lo and (not ra or ra < rng_lo): continue
+            if rng_hi and (not ra or ra > rng_hi): continue
+            if method and method != "all" and p.get("method") != method: continue
+            if received_by and received_by != "all" and p.get("recorded_by") != received_by: continue
+            flat.append({
+                "payment_id": p.get("id"),
+                "payment_date": ra,
+                "method": p.get("method"),
+                "amount": round3(p.get("amount", 0)),
+                "auth_code": p.get("auth_code") or "",
+                "job_id": j.get("id"),
+                "job_number": j.get("number"),
+                "invoice_number": j.get("invoice_number") or "",
+                "customer_name": cust.get("name") or "",
+                "customer_mobile": cust.get("mobile") or "",
+                "vehicle_plate": veh.get("plate") or "",
+                "vehicle_label": f"{veh.get('make','')} {veh.get('model','')}".strip(),
+                "received_by_id": p.get("recorded_by") or "",
+                "received_by": umap.get(p.get("recorded_by"), ""),
+                "balance_due": round3(j.get("total", 0) - sum(x.get("amount", 0) for x in j.get("payments", []))),
+                "job_total": j.get("total", 0),
+            })
+    flat.sort(key=lambda x: x["payment_date"], reverse=True)
+    by_method: Dict[str, float] = {"cash": 0, "knet": 0, "credit_card": 0}
+    for p in flat:
+        by_method[p["method"]] = by_method.get(p["method"], 0) + p["amount"]
+    return {
+        "payments": flat,
+        "total_amount": round3(sum(p["amount"] for p in flat)),
+        "count": len(flat),
+        "by_method": [{"method": k, "amount": round3(v)} for k, v in by_method.items()],
+        "filters": {"start": start, "end": end, "method": method or "all", "received_by": received_by or "all"},
+    }
+
+@api.get("/reports/payments/export")
+async def payments_export(
+    start: Optional[str] = None, end: Optional[str] = None,
+    method: Optional[str] = None, received_by: Optional[str] = None,
+    user=Depends(require_roles("admin", "sales")),
+):
+    data = await payments_report(start, end, method, received_by, user)
+    wb = Workbook(); ws = wb.active; ws.title = "Payments"
+    ws.append(["Payment Date", "Job #", "Invoice #", "Customer Name", "Mobile",
+               "Vehicle Plate", "Vehicle", "Payment Mode", "Auth Code",
+               "Amount (KWD)", "Job Total (KWD)", "Balance Due (KWD)", "Received By"])
+    for p in data["payments"]:
+        ws.append([p["payment_date"], p["job_number"], p["invoice_number"],
+                   p["customer_name"], p["customer_mobile"], p["vehicle_plate"],
+                   p["vehicle_label"], p["method"], p["auth_code"],
+                   p["amount"], p["job_total"], p["balance_due"], p["received_by"]])
+    # Summary footer
+    ws.append([])
+    ws.append(["", "", "", "", "", "", "", "TOTAL", "", data["total_amount"]])
+    return _xlsx_stream(wb, f"payments_{(start or 'all')}_{(end or 'all')}.xlsx")
 
 # ---------------- Reports ----------------
 def _date_filter(start, end):
@@ -1723,6 +2026,14 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup():
+    # Phase 3: ensure default inventory category and migrate legacy items
+    try:
+        await _migrate_inv_to_default()
+    except Exception as e:
+        logger.warning(f"Inventory migration skipped: {e}")
 
 @app.on_event("shutdown")
 async def shutdown():
