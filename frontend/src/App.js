@@ -17,6 +17,7 @@ import Receipt from "./pages/Receipt";
 import Inventory from "./pages/Inventory";
 import Services from "./pages/Services";
 import Segments from "./pages/Segments";
+import SegmentDetail from "./pages/SegmentDetail";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
@@ -40,6 +41,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/customers/segments" element={<Protected roles={["admin","sales"]}><Segments /></Protected>} />
+              <Route path="/customers/segments/:id" element={<Protected roles={["admin","sales"]}><SegmentDetail /></Protected>} />
               <Route path="/customers/:id" element={<CustomerDetail />} />
               <Route path="/vehicles" element={<Vehicles />} />
               <Route path="/vehicles/:id" element={<VehicleDetail />} />

@@ -13,7 +13,7 @@ import logging
 import bcrypt
 import jwt
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime, timezone, timedelta
 
@@ -131,6 +131,16 @@ class CustomerIn(BaseModel):
     notes: Optional[str] = None
     preferred_contact: Literal["mobile", "email", "whatsapp"] = "mobile"
     vehicles: List[CustomerVehicleIn] = []
+
+    @field_validator("mobile")
+    @classmethod
+    def _mobile_numeric(cls, v: str) -> str:
+        s = (v or "").strip()
+        # Allow optional leading + then digits only (KW numbers often start with +965)
+        core = s[1:] if s.startswith("+") else s
+        if not core or not core.isdigit():
+            raise ValueError("Mobile must contain digits only (an optional leading '+' is allowed).")
+        return s
 
 class VehicleIn(BaseModel):
     customer_id: str
@@ -1136,6 +1146,14 @@ async def export_vehicles(q: Optional[str] = None, make: Optional[str] = None,
 
 # ---------------- Segments ----------------
 class SegmentFilter(BaseModel):
+    # Multi-select arrays (preferred). Single-value fields kept for back-compat.
+    makes: List[str] = []
+    models: List[str] = []
+    years: List[int] = []
+    colors: List[str] = []
+    vehicle_types: List[str] = []
+    cities: List[str] = []
+
     make: Optional[str] = None
     model: Optional[str] = None
     year_min: Optional[int] = None
@@ -1161,12 +1179,25 @@ class SegmentIn(BaseModel):
     filters: SegmentFilter = Field(default_factory=SegmentFilter)
 
 async def _apply_segment_filters(f: SegmentFilter):
+    # Normalise: merge legacy single fields into lists (OR-within-group semantics)
+    makes = [m for m in (f.makes or []) if m]
+    if f.make: makes.append(f.make)
+    models = [m for m in (f.models or []) if m]
+    if f.model: models.append(f.model)
+    years = list(f.years or [])
+    colors = [c for c in (f.colors or []) if c]
+    if f.color: colors.append(f.color)
+    vts = [v for v in (f.vehicle_types or []) if v]
+    if f.vehicle_type: vts.append(f.vehicle_type)
+    cities = [c for c in (f.cities or []) if c]
+    if f.city: cities.append(f.city)
+
     cust_flt: Dict[str, Any] = {}
-    if f.city:
-        cust_flt["$or"] = [
-            {"city": {"$regex": f.city, "$options": "i"}},
-            {"address": {"$regex": f.city, "$options": "i"}},
-        ]
+    if cities:
+        cust_flt["$or"] = []
+        for ci in cities:
+            cust_flt["$or"].append({"city": {"$regex": ci, "$options": "i"}})
+            cust_flt["$or"].append({"address": {"$regex": ci, "$options": "i"}})
     if f.created_after or f.created_before or f.recent_days:
         rng: Dict[str, Any] = {}
         if f.created_after: rng["$gte"] = f.created_after
@@ -1177,18 +1208,25 @@ async def _apply_segment_filters(f: SegmentFilter):
         cust_flt["created_at"] = rng
     customers = await db.customers.find(cust_flt, {"_id": 0}).to_list(10000)
 
-    veh_filters_active = any([f.make, f.model, f.year_min, f.year_max, f.color, f.vehicle_type])
+    veh_filters_active = bool(makes or models or years or colors or vts or f.year_min or f.year_max)
     if veh_filters_active or f.has_vehicles is not None:
-        vflt: Dict[str, Any] = {}
-        if f.make: vflt["make"] = {"$regex": f"^{f.make}$", "$options": "i"}
-        if f.model: vflt["model"] = {"$regex": f"^{f.model}$", "$options": "i"}
-        if f.color: vflt["color"] = {"$regex": f"^{f.color}$", "$options": "i"}
-        if f.vehicle_type: vflt["vehicle_type"] = f.vehicle_type
-        if f.year_min or f.year_max:
+        and_clauses: List[Dict[str, Any]] = []
+        if makes:
+            and_clauses.append({"$or": [{"make": {"$regex": f"^{m}$", "$options": "i"}} for m in makes]})
+        if models:
+            and_clauses.append({"$or": [{"model": {"$regex": f"^{m}$", "$options": "i"}} for m in models]})
+        if colors:
+            and_clauses.append({"$or": [{"color": {"$regex": f"^{c}$", "$options": "i"}} for c in colors]})
+        if vts:
+            and_clauses.append({"vehicle_type": {"$in": vts}})
+        if years:
+            and_clauses.append({"year": {"$in": years}})
+        elif f.year_min or f.year_max:
             yr: Dict[str, Any] = {}
             if f.year_min: yr["$gte"] = f.year_min
             if f.year_max: yr["$lte"] = f.year_max
-            vflt["year"] = yr
+            and_clauses.append({"year": yr})
+        vflt = {"$and": and_clauses} if and_clauses else {}
         vehicles = await db.vehicles.find(vflt, {"_id": 0}).to_list(20000)
         cust_ids_with_match = {v["customer_id"] for v in vehicles}
         if veh_filters_active:
@@ -1275,10 +1313,23 @@ async def create_segment(body: SegmentIn, user=Depends(require_roles("admin", "s
     return doc
 
 @api.get("/segments/{sid}")
-async def get_segment(sid: str, user=Depends(require_roles("admin", "sales"))):
+async def get_segment(sid: str, q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
     s = await db.segments.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404)
-    s["customers"] = await _apply_segment_filters(SegmentFilter(**s["filters"]))
+    customers = await _apply_segment_filters(SegmentFilter(**s["filters"]))
+    # Enrich with vehicles (first match) for the segment detail view
+    cids = [c["id"] for c in customers]
+    vehs = await db.vehicles.find({"customer_id": {"$in": cids}}, {"_id": 0}).to_list(20000) if cids else []
+    by_cust: Dict[str, List[Dict[str, Any]]] = {}
+    for v in vehs:
+        by_cust.setdefault(v["customer_id"], []).append(v)
+    for c in customers:
+        c["vehicles"] = by_cust.get(c["id"], [])
+    if q:
+        ql = q.lower().strip()
+        customers = [c for c in customers if ql in (c.get("name") or "").lower() or ql in (c.get("mobile") or "").lower()]
+    s["customers"] = customers
+    s["customer_count"] = len(customers)
     return s
 
 @api.delete("/segments/{sid}")
@@ -1291,12 +1342,23 @@ async def export_segment(sid: str, user=Depends(require_roles("admin", "sales"))
     s = await db.segments.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404)
     customers = await _apply_segment_filters(SegmentFilter(**s["filters"]))
+    cids = [c["id"] for c in customers]
+    vehs = await db.vehicles.find({"customer_id": {"$in": cids}}, {"_id": 0}).to_list(20000) if cids else []
+    by_cust: Dict[str, List[Dict[str, Any]]] = {}
+    for v in vehs:
+        by_cust.setdefault(v["customer_id"], []).append(v)
     wb = Workbook(); ws = wb.active; ws.title = (s["name"] or "Segment")[:31]
-    ws.append(["Name", "Mobile", "Email", "Address", "City", "Notes", "Preferred Contact", "Created At"])
+    ws.append(["Name", "Mobile", "Email", "Address", "City", "Vehicles", "Notes",
+               "Preferred Contact", "Job Count", "Total Spend (KWD)", "Last Service", "Created At"])
     for c in customers:
+        veh_str = "; ".join([f"{v.get('make','')} {v.get('model','')}".strip() for v in by_cust.get(c["id"], [])])
         ws.append([c.get("name"), c.get("mobile"), c.get("email") or "",
-                   c.get("address") or "", c.get("city") or "", c.get("notes") or "",
-                   c.get("preferred_contact") or "", c.get("created_at") or ""])
+                   c.get("address") or "", c.get("city") or "", veh_str,
+                   c.get("notes") or "", c.get("preferred_contact") or "",
+                   c.get("job_count") if c.get("job_count") is not None else "",
+                   c.get("total_spend") if c.get("total_spend") is not None else "",
+                   c.get("last_service") or "",
+                   c.get("created_at") or ""])
     safe = "".join(ch for ch in s["name"] if ch.isalnum() or ch in ("-", "_")) or "segment"
     return _xlsx_stream(wb, f"segment_{safe}_{datetime.now().strftime('%Y%m%d')}.xlsx")
 

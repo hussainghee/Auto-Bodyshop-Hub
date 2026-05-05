@@ -107,22 +107,22 @@ export default function Customers() {
           <Button onClick={() => { setForm(emptyForm); setOpen(true); }} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm" data-testid="new-customer-btn"><Plus size={16} className="mr-1.5" /> New Customer</Button>
         </>}
       />
-      <div className="p-8 space-y-4">
-        <div className="relative max-w-md">
+      <div className="p-4 sm:p-8 space-y-4">
+        <div className="relative max-w-md w-full">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="Search by name or mobile…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 bg-[#0F1115] border-border rounded-sm h-10" data-testid="customer-search" />
         </div>
 
-        <div className="border border-border bg-[#0F1115] rounded-sm overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="border border-border bg-[#0F1115] rounded-sm overflow-x-auto -mx-4 sm:mx-0">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="text-[10px] uppercase tracking-widest text-muted-foreground bg-[#0a0b0e]">
               <tr className="border-b border-border">
-                <th className="text-left px-6 py-3">Name</th>
-                <th className="text-left px-6 py-3">Mobile</th>
-                <th className="text-left px-6 py-3">Email</th>
-                <th className="text-left px-6 py-3">City</th>
-                <th className="text-left px-6 py-3">Contact</th>
-                <th className="text-left px-6 py-3">Created</th>
+                <th className="text-left px-4 sm:px-6 py-3">Name</th>
+                <th className="text-left px-4 sm:px-6 py-3">Mobile</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden md:table-cell">Email</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden md:table-cell">City</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden lg:table-cell">Contact</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden lg:table-cell">Created</th>
                 <th />
               </tr>
             </thead>
@@ -130,18 +130,18 @@ export default function Customers() {
               {list.length === 0 && <tr><td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">No customers found.</td></tr>}
               {list.map(c => (
                 <tr key={c.id} className="border-b border-border/60 hover:bg-white/[0.02]" data-testid={`customer-row-${c.id}`}>
-                  <td className="px-6 py-3 font-semibold">{c.name}</td>
-                  <td className="px-6 py-3 font-mono-data">
+                  <td className="px-4 sm:px-6 py-3 font-semibold">{c.name}</td>
+                  <td className="px-4 sm:px-6 py-3 font-mono-data">
                     <div className="flex items-center gap-2">
                       {c.mobile}
                       <a href={waLink(c.mobile)} target="_blank" rel="noreferrer" className="text-emerald-400 hover:text-emerald-300" data-testid={`wa-${c.id}`}><MessageCircle size={14} /></a>
                     </div>
                   </td>
-                  <td className="px-6 py-3 text-muted-foreground">{c.email || "—"}</td>
-                  <td className="px-6 py-3 text-muted-foreground">{c.city || "—"}</td>
-                  <td className="px-6 py-3"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.preferred_contact}</span></td>
-                  <td className="px-6 py-3 text-muted-foreground">{c.created_at ? fmtDate(c.created_at) : "—"}</td>
-                  <td className="px-6 py-3 text-right"><Link to={`/customers/${c.id}`} className="text-[#3385FF] text-xs hover:underline">Open →</Link></td>
+                  <td className="px-4 sm:px-6 py-3 text-muted-foreground hidden md:table-cell">{c.email || "—"}</td>
+                  <td className="px-4 sm:px-6 py-3 text-muted-foreground hidden md:table-cell">{c.city || "—"}</td>
+                  <td className="px-4 sm:px-6 py-3 hidden lg:table-cell"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{c.preferred_contact}</span></td>
+                  <td className="px-4 sm:px-6 py-3 text-muted-foreground hidden lg:table-cell">{c.created_at ? fmtDate(c.created_at) : "—"}</td>
+                  <td className="px-4 sm:px-6 py-3 text-right"><Link to={`/customers/${c.id}`} className="text-[#3385FF] text-xs hover:underline">Open →</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -151,12 +151,32 @@ export default function Customers() {
 
       {/* NEW CUSTOMER MODAL */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-3xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-3xl max-h-[92vh] overflow-y-auto w-[calc(100vw-1.5rem)] sm:w-auto">
           <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">New Customer</DialogTitle></DialogHeader>
           <form onSubmit={save} className="space-y-4 mt-2" data-testid="customer-form">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-[10px] uppercase tracking-wider">Name *</Label><Input required className="mt-1 bg-background border-border rounded-sm" value={form.name} onChange={e => setForm({...form, name: e.target.value})} data-testid="customer-name" /></div>
-              <div><Label className="text-[10px] uppercase tracking-wider">Mobile *</Label><Input required className="mt-1 bg-background border-border rounded-sm" value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} data-testid="customer-mobile" /></div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider">Mobile *</Label>
+                <Input
+                  required type="tel" inputMode="tel" pattern="^\+?[0-9]+$"
+                  className="mt-1 bg-background border-border rounded-sm"
+                  value={form.mobile}
+                  onKeyDown={(e) => {
+                    if (["Backspace","ArrowLeft","ArrowRight","Delete","Tab","Home","End"].includes(e.key)) return;
+                    if (e.metaKey || e.ctrlKey) return;
+                    if (e.key === "+" && form.mobile === "") return;
+                    if (!/^\d$/.test(e.key)) e.preventDefault();
+                  }}
+                  onChange={e => {
+                    const v = e.target.value;
+                    const cleaned = v.startsWith("+") ? "+" + v.slice(1).replace(/\D/g, "") : v.replace(/\D/g, "");
+                    setForm({...form, mobile: cleaned});
+                  }}
+                  data-testid="customer-mobile"
+                  placeholder="+96599887766"
+                />
+              </div>
               <div><Label className="text-[10px] uppercase tracking-wider">Email</Label><Input type="email" className="mt-1 bg-background border-border rounded-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></div>
               <div><Label className="text-[10px] uppercase tracking-wider">City / Area</Label><Input className="mt-1 bg-background border-border rounded-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} placeholder="e.g. Salmiya" data-testid="customer-city" /></div>
               <div>
@@ -182,7 +202,7 @@ export default function Customers() {
               <div className="divide-y divide-border">
                 {form.vehicles.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">No vehicles yet.</div>}
                 {form.vehicles.map((v, i) => (
-                  <div key={i} className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 relative" data-testid={`inline-vehicle-${i}`}>
+                  <div key={i} className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative" data-testid={`inline-vehicle-${i}`}>
                     <button type="button" onClick={() => removeVehicle(i)} className="absolute top-2 right-2 text-muted-foreground hover:text-[#FF3B30]"><Trash2 size={14} /></button>
                     <div>
                       <Label className="text-[10px] uppercase tracking-wider">Type</Label>
@@ -194,7 +214,7 @@ export default function Customers() {
                       </Select>
                     </div>
                     <MakeModelSelect make={v.make} model={v.model} onChange={({ make, model }) => updateVehicle(i, { make, model })} />
-                    <div><Label className="text-[10px] uppercase tracking-wider">Year</Label><Input type="number" className="mt-1 bg-background border-border rounded-sm" value={v.year} onChange={e => updateVehicle(i, { year: e.target.value })} /></div>
+                    <div><Label className="text-[10px] uppercase tracking-wider">Year</Label><Input type="text" inputMode="numeric" pattern="[0-9]*" className="mt-1 bg-background border-border rounded-sm" value={v.year} onChange={e => updateVehicle(i, { year: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
                     <div><Label className="text-[10px] uppercase tracking-wider">Plate</Label><Input className="mt-1 bg-background border-border rounded-sm" value={v.plate} onChange={e => updateVehicle(i, { plate: e.target.value })} /></div>
                     <div><Label className="text-[10px] uppercase tracking-wider">VIN</Label><Input className="mt-1 bg-background border-border rounded-sm" value={v.vin} onChange={e => updateVehicle(i, { vin: e.target.value })} /></div>
                     <div><Label className="text-[10px] uppercase tracking-wider">Color</Label><Input className="mt-1 bg-background border-border rounded-sm" value={v.color} onChange={e => updateVehicle(i, { color: e.target.value })} /></div>

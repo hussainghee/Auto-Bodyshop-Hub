@@ -7,12 +7,12 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import { TrendingUp, Wrench, Clock, AlertTriangle, ArrowUpRight } from "lucide-react";
 
 const MetricCard = ({ label, value, hint, icon: Icon, accent = "#0066FF", testid }) => (
-  <div className="border border-border bg-[#0F1115] p-6 rounded-sm transition hover:border-[#0066FF]/50" data-testid={testid}>
+  <div className="border border-border bg-[#0F1115] p-4 sm:p-6 rounded-sm transition hover:border-[#0066FF]/50" data-testid={testid}>
     <div className="flex items-start justify-between">
       <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">{label}</div>
       <Icon size={16} style={{ color: accent }} />
     </div>
-    <div className="font-display text-4xl font-black tracking-tighter mt-3 font-mono-data">{value}</div>
+    <div className="font-display text-2xl sm:text-4xl font-black tracking-tighter mt-2 sm:mt-3 font-mono-data break-words">{value}</div>
     {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
   </div>
 );
@@ -35,8 +35,8 @@ export default function Dashboard() {
   return (
     <div data-testid="dashboard-page">
       <PageHeader title="Dashboard" subtitle="Overview" />
-      <div className="p-8 space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="p-4 sm:p-8 space-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <MetricCard label="Today's Jobs" value={data?.todays_jobs ?? "—"} icon={Wrench} testid="metric-todays-jobs" />
           <MetricCard label="Revenue Today" value={data ? fmtKWD(data.revenue_today) : "—"} icon={TrendingUp} accent="#00FF66" testid="metric-revenue" />
           <MetricCard label="Pending Jobs" value={data?.pending_jobs ?? "—"} icon={Clock} accent="#FFCC00" testid="metric-pending" />
@@ -90,11 +90,11 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="border border-border bg-[#0F1115] rounded-sm">
-          <div className="px-6 py-4 border-b border-border">
+        <div className="border border-border bg-[#0F1115] rounded-sm overflow-x-auto">
+          <div className="px-4 sm:px-6 py-4 border-b border-border">
             <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Active & Pending Jobs</div>
           </div>
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[480px]">
             <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
               <tr className="border-b border-border">
                 <th className="text-left px-6 py-3">Job #</th>

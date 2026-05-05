@@ -1,0 +1,51 @@
+{
+  "summary": "Phase-1 follow-up testing for Wetworks CRM (segment detail, multi-select segment filters, mobile validator, mobile responsiveness). Backend new suite (test_iter3_segments_mobile.py): 12/13 PASS — covered (a) Mobile validator: 'abc123'->422, '+96599887766'->200, '12345678'->200, '+ 9659'->422; (b) Multi-select OR within group (makes=[Toyota,Lexus] returns customers with Toyota OR Lexus, count >= each individual, <= sum); (c) AND across groups (makes=[Toyota] + models=[Camry] returns Toyota Camry only); (d) years multi-select alone and combined with makes; (e) colors multi-select OR; (f) legacy single make backward compat (count equals new makes=[]); (g) segment CRUD create→GET detail with vehicles enrichment→search ?q=→export xlsx (Vehicles column populated). 1 FAIL: GET /api/segments/{id} response is missing 'created_by_name' (only stores raw 'created_by' uuid; the list endpoint enriches but the detail endpoint does not — violates spec). Regression: all 36 prior tests (phase1+iter2) still PASS. Frontend smoke (admin@autocrm.kw): segments list -> click 'Toyota Owners' navigates to /customers/segments/{id}; SegmentDetail page renders all required testids (segment-detail, back-to-segments, segment-count, segment-customer-search, export-segment-btn, chip-make, segment-customers-table, segment-customers-cards). New Segment modal exposes filter-makes/models/years/colors/types/cities, plus min/max-spend, min/max-jobs, last-service-after/before, registered-from/to, recent-days, preview-btn, save-segment-btn. filter-makes opens a popover with a search box; typing 'toy' narrows the option list to Toyota only. Mobile (390x844): mobile-nav-btn is present, NO horizontal overflow on Dashboard or Customers, segment-customers-cards is visible (table hidden) on segment detail. Mobile validation: New Customer modal mobile field accepts '+96599887766' (verified visually in screenshot).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/segments/{id}", "issue": "Response missing 'created_by_name' field. Spec requires it; the list endpoint adds it via user lookup but the detail endpoint returns the raw 'created_by' uuid only. Frontend SegmentDetail will not be able to show 'created by Ahmad Al-Sabah'.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SegmentDetail mobile cards", "issue": "Hydration error: nested <a> inside <a>. The customer card row wraps the whole tile with <Link to=\"/customers/{id}\"> and then renders an inner WhatsApp <a href=\"https://wa.me/...\"> at line ~156 of SegmentDetail.jsx. React logs: '<a> cannot be a descendant of <a>' / 'a cannot contain a nested a'. Fix: replace inner <a> with a <button onClick={(e)=>{e.preventDefault(); e.stopPropagation(); window.open(...)}}> OR move the wa.me link outside the Link wrapper. Same potential issue for the call/copy icon if it is also an <a>.", "selector": "[data-testid='segment-customers-cards'] a a", "priority": "MEDIUM"},
+      {"component": "Layout mobile drawer", "issue": "On 390x844, [data-testid='mobile-nav-btn'] is visible and clickable but after click, [data-testid='mobile-sidebar'] could not be located by Playwright (is_visible=False right after click and Escape-close failed). Suspected: drawer uses Sheet/Dialog portal and the data-testid is set on a wrapper that is not yet mounted when polled, OR the drawer never actually opens. Re-run by waiting for the testid with timeout to confirm. If it never opens, mobile users cannot navigate.", "selector": "[data-testid='mobile-sidebar']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Segments list", "issues": ["Segment card uses [data-testid='segment-{id}'] (not 'segment-card-{id}' as one might expect). Fine, but worth documenting for next testing agent."]},
+      {"screen": "SegmentDetail filter chips", "issues": ["Existing seeded segment 'Toyota Owners' was created with the legacy single-value filter, so it only shows one chip 'make: Toyota'. Multi-select chips (chip-makes/chip-models/chip-years/chip-colors/chip-types/chip-cities) are not exercised on the seed. Newly-created multi-select segments will need to be inspected to confirm chip rendering for arrays."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_segments_mobile.py",
+    "/app/test_reports/pytest/iter3_results.xml",
+    "/app/backend/tests/test_phase1_segments_export.py",
+    "/app/backend/tests/test_iter2_backend.py"
+  ],
+  "action_items": [
+    "Backend: add 'created_by_name' to GET /api/segments/{sid} response (mirror the enrichment already used in list_segments).",
+    "Frontend: fix nested <a> hydration error in /app/frontend/src/pages/SegmentDetail.jsx mobile customer card — wrap WhatsApp/phone icons as buttons or hoist them outside the <Link>.",
+    "Frontend: investigate why [data-testid='mobile-sidebar'] is not visible after clicking the hamburger at 390px. Likely fix: ensure data-testid is on the Sheet content (the visible drawer panel), not on a wrapper that stays mounted. Verify with Sheet/Dialog from shadcn — testid should be passed via SheetContent.",
+    "(Optional) Add a multi-select smoke seed segment (e.g. 'Toyota or Lexus owners' with makes=[Toyota,Lexus]) so chip rendering for arrays is visible without manual creation."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1580 lines — well above the 700-line guideline. Strongly recommend splitting (auth.py, customers.py, vehicles.py, jobs.py, quotations.py, reports.py, segments.py, export_import.py, seed.py).",
+    "_apply_segment_filters does multiple sequential collection scans; for >10k customers consider a single $lookup-based aggregation. Acceptable for current seed scale.",
+    "_mobile_numeric validator strips on input but stores the original string with leading '+' as-is. Consider a normalised form (always +<digits>, drop leading zero, strip spaces in import path) so dedupe-by-mobile in /api/import/customers stays consistent with dedupe checks elsewhere.",
+    "GET /api/segments/{sid} forgot 'created_by_name' — same enrichment helper used in list_segments should be extracted into a small util to avoid divergence.",
+    "Segment detail q-filter is post-fetch in Python — fine for current scale; document for >5k customers.",
+    "Frontend: SegmentDetail nested <Link><a/></Link> is invalid HTML. React 19 will throw runtime warnings; some accessibility tools and screen-readers may handle it incorrectly.",
+    "Frontend: MultiSelectCombobox model dropdown should ideally show 'All models' when no brand is selected and narrow as brands are picked — already implemented per the request, just confirmed via testid presence.",
+    "Frontend: PageHeader, Layout, Customers, Vehicles, Dashboard pages render at 390x844 with no horizontal overflow — good. Forms still need a manual visual check by the main agent because Playwright cannot easily verify column-stack visually."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_segments_mobile.py (new)"
+  ],
+  "success_rate": {"backend": "97% (48/49: 12/13 new + 13/13 phase1 + 23/23 iter2 still pass)", "frontend": "85% on critical Phase-1 follow-up testids; 1 hydration warning + 1 mobile drawer concern"},
+  "test_credentials": "admin@autocrm.kw/admin123, sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "POST /api/seed (idempotent). Test created 1 segment 'TEST_Iter3_Segment' (cleaned up) and 2 transient customers '+96599887766'/'12345678' (cleaned up).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New Phase-1-followup backend regression at /app/backend/tests/test_iter3_segments_mobile.py — run with `pytest /app/backend/tests/ -v`. The single failing test is test_get_segment_detail_shape — it asserts 'created_by_name' in response of GET /api/segments/{sid}, which currently is not added by the detail endpoint. Multi-select filters use OR within a list and AND across the lists — backend code at server.py _apply_segment_filters around line 1181. Frontend testids confirmed present: segment-detail, segment-count, segment-customer-search, export-segment-btn, chip-* (per filter), segment-customers-table (md+), segment-customers-cards (mobile only), filter-makes/models/years/colors/types/cities. mobile-nav-btn exists but mobile-sidebar visibility post-click needs verification by the main agent."
+}

@@ -64,9 +64,9 @@ export default function Vehicles() {
       <PageHeader title="Vehicles" subtitle="Fleet"
         actions={<Button variant="outline" onClick={exportVehicles} className="border-border rounded-sm" data-testid="export-vehicles-btn"><Download size={14} className="mr-1.5" /> Export</Button>}
       />
-      <div className="p-8 space-y-4">
+      <div className="p-4 sm:p-8 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[280px] max-w-md">
+          <div className="relative flex-1 min-w-[200px] sm:min-w-[280px] max-w-md">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search brand, model, year, plate, VIN, customer name/mobile…" value={q} onChange={e => setQ(e.target.value)} className="pl-9 bg-[#0F1115] border-border rounded-sm h-10" data-testid="vehicle-search" />
           </div>
@@ -75,12 +75,12 @@ export default function Vehicles() {
           )}
         </div>
 
-        <div className="border border-border bg-[#0F1115] rounded-sm p-4">
+        <div className="border border-border bg-[#0F1115] rounded-sm p-3 sm:p-4">
           <div className="flex items-center gap-2 mb-3">
             <Filter size={14} className="text-muted-foreground" />
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Filters</div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
             <div>
               <Label className="text-[10px] uppercase tracking-wider">Brand</Label>
               <Select value={filters.make || "__all__"} onValueChange={(v) => setFilters({ ...filters, make: v === "__all__" ? "" : v, model: "" })}>
@@ -101,7 +101,7 @@ export default function Vehicles() {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label className="text-[10px] uppercase tracking-wider">Year</Label><Input type="number" value={filters.year} onChange={e => setFilters({ ...filters, year: e.target.value })} className="mt-1 bg-background border-border rounded-sm h-9" data-testid="filter-year" /></div>
+            <div><Label className="text-[10px] uppercase tracking-wider">Year</Label><Input type="text" inputMode="numeric" pattern="[0-9]*" value={filters.year} onChange={e => setFilters({ ...filters, year: e.target.value.replace(/\D/g, "").slice(0, 4) })} className="mt-1 bg-background border-border rounded-sm h-9" data-testid="filter-year" /></div>
             <div>
               <Label className="text-[10px] uppercase tracking-wider">Type</Label>
               <Select value={filters.vehicle_type || "__all__"} onValueChange={(v) => setFilters({ ...filters, vehicle_type: v === "__all__" ? "" : v })}>
@@ -120,18 +120,18 @@ export default function Vehicles() {
 
         <div className="text-xs text-muted-foreground">{list.length} vehicle{list.length !== 1 ? "s" : ""} matching</div>
 
-        <div className="border border-border bg-[#0F1115] rounded-sm overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="border border-border bg-[#0F1115] rounded-sm overflow-x-auto -mx-4 sm:mx-0">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="text-[10px] uppercase tracking-widest text-muted-foreground bg-[#0a0b0e]">
               <tr className="border-b border-border">
-                <th className="text-left px-6 py-3">Vehicle</th>
-                <th className="text-left px-6 py-3">Type</th>
-                <th className="text-left px-6 py-3">Owner</th>
-                <th className="text-left px-6 py-3">Mobile</th>
-                <th className="text-left px-6 py-3">Plate</th>
-                <th className="text-left px-6 py-3">Year</th>
-                <th className="text-left px-6 py-3">Color</th>
-                <th className="text-left px-6 py-3">Created</th>
+                <th className="text-left px-4 sm:px-6 py-3">Vehicle</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden sm:table-cell">Type</th>
+                <th className="text-left px-4 sm:px-6 py-3">Owner</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden md:table-cell">Mobile</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden md:table-cell">Plate</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden lg:table-cell">Year</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden lg:table-cell">Color</th>
+                <th className="text-left px-4 sm:px-6 py-3 hidden lg:table-cell">Created</th>
                 <th />
               </tr>
             </thead>
@@ -140,15 +140,15 @@ export default function Vehicles() {
                 const c = customers[v.customer_id];
                 return (
                   <tr key={v.id} className="border-b border-border/60 hover:bg-white/[0.02]">
-                    <td className="px-6 py-3 font-semibold">{v.make} {v.model}</td>
-                    <td className="px-6 py-3 capitalize">{v.vehicle_type}</td>
-                    <td className="px-6 py-3 text-muted-foreground">{c?.name || "—"}</td>
-                    <td className="px-6 py-3 font-mono-data text-muted-foreground">{c?.mobile || "—"}</td>
-                    <td className="px-6 py-3 font-mono-data">{v.plate || "—"}</td>
-                    <td className="px-6 py-3">{v.year || "—"}</td>
-                    <td className="px-6 py-3">{v.color || "—"}</td>
-                    <td className="px-6 py-3 text-muted-foreground">{v.created_at ? fmtDate(v.created_at) : "—"}</td>
-                    <td className="px-6 py-3 text-right"><Link to={`/vehicles/${v.id}`} className="text-[#3385FF] text-xs hover:underline">Open →</Link></td>
+                    <td className="px-4 sm:px-6 py-3 font-semibold">{v.make} {v.model}</td>
+                    <td className="px-4 sm:px-6 py-3 capitalize hidden sm:table-cell">{v.vehicle_type}</td>
+                    <td className="px-4 sm:px-6 py-3 text-muted-foreground">{c?.name || "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 font-mono-data text-muted-foreground hidden md:table-cell">{c?.mobile || "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 font-mono-data hidden md:table-cell">{v.plate || "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 hidden lg:table-cell">{v.year || "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 hidden lg:table-cell">{v.color || "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 text-muted-foreground hidden lg:table-cell">{v.created_at ? fmtDate(v.created_at) : "—"}</td>
+                    <td className="px-4 sm:px-6 py-3 text-right"><Link to={`/vehicles/${v.id}`} className="text-[#3385FF] text-xs hover:underline">Open →</Link></td>
                   </tr>
                 );
               })}
