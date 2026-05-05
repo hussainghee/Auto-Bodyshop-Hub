@@ -6,7 +6,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { Plus, ChevronLeft, Search, Trash2, Edit3, Car } from "lucide-react";
 import { toast } from "sonner";
 
@@ -106,7 +106,10 @@ export default function VehicleManagement() {
 
         <Dialog open={brandOpen} onOpenChange={setBrandOpen}>
           <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-md w-[calc(100vw-1.5rem)] sm:w-auto">
-            <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">{brandEditId ? "Edit Brand" : "New Brand"}</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="font-display text-2xl font-black tracking-tighter">{brandEditId ? "Edit Brand" : "New Brand"}</DialogTitle>
+              <DialogDescription className="sr-only">Vehicle brand name and active status.</DialogDescription>
+            </DialogHeader>
             <form onSubmit={saveBrand} className="space-y-3 mt-2" data-testid="brand-form">
               <div><Label className="text-[10px] uppercase tracking-wider">Brand Name *</Label><Input required value={brandForm.name} onChange={e => setBrandForm({ ...brandForm, name: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="brand-name" autoFocus /></div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -166,7 +169,10 @@ export default function VehicleManagement() {
 
       <Dialog open={modelOpen} onOpenChange={setModelOpen}>
         <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-md w-[calc(100vw-1.5rem)] sm:w-auto">
-          <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">{modelEditId ? "Edit Model" : "New Model"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-black tracking-tighter">{modelEditId ? "Edit Model" : "New Model"}</DialogTitle>
+            <DialogDescription className="sr-only">Vehicle model details for the selected brand.</DialogDescription>
+          </DialogHeader>
           <form onSubmit={saveModel} className="space-y-3 mt-2" data-testid="model-form">
             <div><Label className="text-[10px] uppercase tracking-wider">Model Name *</Label><Input required value={modelForm.name} onChange={e => setModelForm({ ...modelForm, name: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="model-name" autoFocus /></div>
             <div>

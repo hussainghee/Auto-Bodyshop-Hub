@@ -1,0 +1,43 @@
+{
+  "summary": "Final QA pass for Wetworks CRM after iter6 fixes (secret_key masking, _phase4_migrate after /seed, DialogDescription sr-only). Backend regression: 114/114 PASS across all 6 phases. Frontend: login (email + 'Email or Mobile' label), invalid-cred toast, RBAC redirects for Sales/Technician on /settings/*, all sidebar testids resolve including child nav-roles/users/vehicle-management/system-settings, mobile responsiveness verified at 375x812 with 0 horizontal overflow on 10 critical pages, hamburger drawer opens, System Settings shows 4 tabs (toggles/payment-providers/whatsapp/smtp), 0 console errors, 0 DialogContent aria-describedby warnings (fix from iter6 confirmed working). secret_key masking fix verified end-to-end via curl: PUT /api/system-settings/integrations/tap with {api_key,secret_key} returns BOTH masked (• present) on PUT response AND on subsequent GET /system-settings.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/customers, /api/roles", "issue": "Returns 200 to technician role (no role-gate on read endpoints); UI is gated via PrivateRoute redirect, but a technician token can still read these resources via direct API call. Low priority for this CRM since data is non-sensitive, but consider adding require_roles dependency on these read endpoints if multi-tenant or sensitive deployments are planned."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_settings_roles_users.py",
+    "/app/backend/tests/test_phase3_inventory_services_payments.py",
+    "/app/backend/tests/test_phase2_quotations_jobs.py",
+    "/app/backend/tests/test_phase1_segments_export.py",
+    "/app/backend/tests/test_iter3_segments_mobile.py",
+    "/app/backend/tests/test_iter2_backend.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Add require_roles(['admin','sales']) on read endpoints like GET /api/customers and GET /api/roles if technician should not read them via direct API. Currently UI redirects but token-level access exists.",
+    "(Optional, deferred from iter3) server.py is 2439 lines — consider splitting into modules (auth, customers, vehicles, quotations, jobs, inventory, services, system_settings, reports) for maintainability."
+  ],
+  "critical_code_review_comments": [
+    "_mask_integration predicate now correctly catches secret_key via SECRET_KEYS literal AND startswith('secret_') guard — verified via live curl: PUT and GET both return the masked value with • characters.",
+    "_phase4_migrate is now called after both startup and /seed (re)seeding; Administrator role is idempotently upserted with all 14 permission keys; admin@autocrm.kw is_master=true confirmed.",
+    "DialogDescription sr-only fix confirmed effective — 0 React aria-describedby warnings across Roles/Users/VehicleManagement/SystemSettings dialogs in console capture during navigation.",
+    "Frontend mobile design is solid: scrollWidth == clientWidth (375px) on every page tested — no horizontal overflow, dialogs use w-[calc(100vw-1.5rem)] pattern as documented.",
+    "RBAC redirect: Sales and Technician users hitting /settings/roles, /settings/users, /settings/vehicle-management, /settings via direct URL are correctly redirected to / (dashboard) by PrivateRoute. Sidebar correctly hides the entire Settings group for non-admin roles.",
+    "Mobile login backend accepts mobile or email in same field; verified email-login still works end-to-end from UI."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (114/114)", "frontend": "100% (all critical flows pass; 0 console errors; 0 aria warnings; 0 mobile overflows)"},
+  "test_credentials": "admin@autocrm.kw/admin123 (master), sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 — per /app/memory/test_credentials.md.",
+  "seed_data_creation": "Backend tests create+cleanup all TEST_-prefixed records. UI test left a dialog open and Save Customer didn't fire (locator hit Name field with bad value) — no record was persisted. tap integration was set then disabled+cleared via curl as cleanup. whatsapp_enabled toggle confirmed OFF in final state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 18 areas in the iter7 review request are PASS. Backend is at 114/114 stable across phases 1-4. Frontend testid map for Layout.jsx: nav-{label.toLowerCase().replace(/[^a-z]+/g,'-')} for flat items, nav-{label.toLowerCase()}-group for group buttons (Customers/Inventory/Settings). Children use the same regex-replace. System Settings tabs: tab-toggles | tab-payment-providers | tab-whatsapp | tab-smtp; toggle-{flag_name} for individual toggles; save-toggles button; secret fields are server-masked. Mobile: hamburger via mobile-nav-btn opens mobile-sidebar, mobile-nav-overlay backdrop closes. Login page label is 'EMAIL OR MOBILE'. No retest needed unless new features land.",
+  "rca of the issue": "N/A — iter6's open issue (secret_key not masked) is resolved by extending SECRET_KEYS to include 'secret_key' AND adding startswith('secret_') predicate in _mask_integration (server.py L617-628). Verified in live environment: PUT then GET both return masked values."
+}

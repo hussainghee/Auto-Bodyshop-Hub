@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Checkbox } from "../components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { Plus, Edit3, Trash2, Shield } from "lucide-react";
 import { toast } from "sonner";
 
@@ -84,7 +84,10 @@ export default function Roles() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-3xl w-[calc(100vw-1.5rem)] sm:w-auto max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">{editId ? "Edit Role" : "New Role"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-black tracking-tighter">{editId ? "Edit Role" : "New Role"}</DialogTitle>
+            <DialogDescription className="sr-only">Configure role name, description and permission groups.</DialogDescription>
+          </DialogHeader>
           <form onSubmit={save} className="space-y-4 mt-2" data-testid="role-form">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-[10px] uppercase tracking-wider">Name *</Label><Input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 bg-background border-border rounded-sm" data-testid="role-name" autoFocus /></div>

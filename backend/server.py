@@ -614,13 +614,19 @@ def _mask_secret(v: Any) -> Any:
     if len(s) <= 4: return "•" * len(s)
     return s[:2] + "•" * (len(s) - 6) + s[-4:]
 
-SECRET_KEYS = {"api_key", "api_secret", "access_token", "secret", "password", "smtp_password", "webhook_secret"}
+SECRET_KEYS = {"api_key", "api_secret", "access_token", "secret", "secret_key", "password", "smtp_password", "webhook_secret"}
 
 def _mask_integration(cfg: dict) -> dict:
     out = {**cfg}
     fields = dict(out.get("fields") or {})
     for k in list(fields.keys()):
-        if k.lower() in SECRET_KEYS or k.lower().endswith("_secret") or k.lower().endswith("_token"):
+        kl = k.lower()
+        if (
+            kl in SECRET_KEYS
+            or kl.endswith("_secret")
+            or kl.endswith("_token")
+            or kl.startswith("secret_")
+        ):
             fields[k] = _mask_secret(fields[k])
     out["fields"] = fields
     return out
@@ -2359,6 +2365,11 @@ async def seed(reseed: bool = False, user=Depends(get_current_user) if False els
     await db.inventory.insert_many([i.copy() for i in inventory])
     # Phase 3: ensure migration runs immediately so Uncategorized.product_count is correct
     await _migrate_inv_to_default()
+    # Phase 4: re-run migration after reseed so newly-created admin gets is_master + role_id
+    try:
+        await _phase4_migrate()
+    except Exception as e:
+        logger.warning(f"Phase 4 migration skipped during seed: {e}")
 
     return {"seeded": True, "users": len(users), "vehicle_types": len(vts),
             "vehicle_makes": len(makes_docs), "services": len(services),
@@ -2399,16 +2410,18 @@ async def _phase4_migrate():
             "toggles": FeatureTogglesIn().model_dump(),
             "integrations": {},
         })
-    # Seed an "Administrator" role with all permissions if no roles exist
-    if await db.roles.count_documents({}) == 0:
-        admin_role = {
+    # Seed an "Administrator" role with all permissions if it doesn't exist
+    # (idempotent — safe to call repeatedly even when other roles already exist)
+    existing_admin_role = await db.roles.find_one({"name": "Administrator"}, {"_id": 0, "id": 1})
+    if not existing_admin_role:
+        admin_role_doc = {
             "id": new_id(), "name": "Administrator",
             "description": "Full access (auto-created on first run)",
             "active": True,
             "permissions": {k: True for k in PERMISSION_KEYS},
             "created_at": now_iso(), "updated_at": now_iso(),
         }
-        await db.roles.insert_one(admin_role)
+        await db.roles.insert_one(admin_role_doc)
     admin_role = await db.roles.find_one({"name": "Administrator"}, {"_id": 0, "id": 1})
     if admin_role:
         # Promote any existing 'admin' to is_master=True (first-time migration)
