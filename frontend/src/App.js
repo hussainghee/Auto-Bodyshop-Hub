@@ -21,6 +21,10 @@ import Segments from "./pages/Segments";
 import SegmentDetail from "./pages/SegmentDetail";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import SystemSettings from "./pages/SystemSettings";
+import Roles from "./pages/Roles";
+import Users from "./pages/Users";
+import VehicleManagement from "./pages/VehicleManagement";
 
 const Protected = ({ children, roles }) => {
   const { user, loading } = useAuth();
@@ -55,7 +59,11 @@ function App() {
               <Route path="/inventory/categories" element={<Protected roles={["admin","sales"]}><InventoryCategories /></Protected>} />
               <Route path="/services" element={<Protected roles={["admin"]}><Services /></Protected>} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />
+              <Route path="/settings" element={<Protected roles={["admin"]}><SystemSettings /></Protected>} />
+              <Route path="/settings/legacy" element={<Protected roles={["admin"]}><Settings /></Protected>} />
+              <Route path="/settings/roles" element={<Protected roles={["admin"]}><Roles /></Protected>} />
+              <Route path="/settings/users" element={<Protected roles={["admin"]}><Users /></Protected>} />
+              <Route path="/settings/vehicle-management" element={<Protected roles={["admin"]}><VehicleManagement /></Protected>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

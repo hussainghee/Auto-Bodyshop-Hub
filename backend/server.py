@@ -98,20 +98,73 @@ def clean_str(s: Optional[str]) -> Optional[str]:
 
 # ---------------- Models ----------------
 class LoginIn(BaseModel):
-    email: str
+    email: Optional[str] = None  # email OR mobile accepted
+    mobile: Optional[str] = None
     password: str
 
 class UserCreate(BaseModel):
-    name: str
-    email: str
-    password: str
-    role: Literal["admin", "sales", "technician"] = "sales"
+    # New mobile-based format
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    mobile: Optional[str] = None
+    role_id: Optional[str] = None
+    is_master: Optional[bool] = False
+    active: Optional[bool] = True
+    # Legacy / fallback
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
 
 class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    mobile: Optional[str] = None
+    role_id: Optional[str] = None
+    is_master: Optional[bool] = None
     name: Optional[str] = None
-    role: Optional[Literal["admin", "sales", "technician"]] = None
+    role: Optional[str] = None
     password: Optional[str] = None
     active: Optional[bool] = None
+
+# Permission keys grouped into logical modules
+PERMISSION_KEYS = [
+    "dashboard", "customers", "segments", "vehicles", "quotations", "jobs",
+    "inventory_categories", "inventory_products", "services", "reports",
+    "settings_roles", "settings_users", "settings_vehicle_management", "system_settings",
+]
+
+class RoleIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    active: bool = True
+    permissions: Dict[str, bool] = {}  # key -> can_access
+
+class VehicleBrandIn(BaseModel):
+    name: str
+    active: bool = True
+
+class VehicleModelIn(BaseModel):
+    brand_id: str
+    name: str
+    vehicle_type: Optional[str] = None
+    active: bool = True
+
+class FeatureTogglesIn(BaseModel):
+    payment_gateway_enabled: bool = False
+    whatsapp_enabled: bool = False
+    email_smtp_enabled: bool = False
+    payment_cash: bool = True
+    payment_knet: bool = True
+    payment_card: bool = True
+    payment_bank_transfer: bool = False
+    payment_other: bool = False
+
+class IntegrationConfigIn(BaseModel):
+    """Generic settings blob for an integration provider; secrets are stored
+    encrypted-at-rest (we only mask on return)."""
+    enabled: bool = False
+    fields: Dict[str, Any] = {}
 
 class CustomerVehicleIn(BaseModel):
     vehicle_type: str
@@ -274,23 +327,77 @@ class AppointmentIn(BaseModel):
 # ---------------- Auth ----------------
 @api.post("/auth/login")
 async def login(body: LoginIn):
-    user = await db.users.find_one({"email": body.email.lower()})
+    ident_email = (body.email or "").strip().lower() or None
+    ident_mobile = (body.mobile or body.email or "").strip()
+    # Treat as mobile if it starts with + or is digits-only
+    user = None
+    if ident_email and "@" in ident_email:
+        user = await db.users.find_one({"email": ident_email})
+    if not user and ident_mobile:
+        # Mobile lookup ignores leading + and spaces
+        m_norm = ident_mobile.replace(" ", "")
+        user = await db.users.find_one({"$or": [{"mobile": m_norm}, {"mobile": "+" + m_norm.lstrip("+")}]})
     if not user or not verify_password(body.password, user.get("password", "")):
         raise HTTPException(401, "Invalid credentials")
     if user.get("active") is False:
         raise HTTPException(403, "Account disabled")
-    token = make_token(user["id"], user["role"])
+    token = make_token(user["id"], user.get("role", "admin"))
     user.pop("_id", None); user.pop("password", None)
+    # Embed permissions for instant UI gating
+    user["permissions"] = await _resolve_permissions(user)
     return {"token": token, "user": user}
 
 @api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
+    user["permissions"] = await _resolve_permissions(user)
     return user
 
 # ---------------- Users ----------------
+async def _resolve_permissions(user: dict) -> Dict[str, bool]:
+    """Master admins get all true. Otherwise look up role permissions."""
+    if user.get("is_master"):
+        return {k: True for k in PERMISSION_KEYS}
+    rid = user.get("role_id")
+    if rid:
+        role = await db.roles.find_one({"id": rid}, {"_id": 0, "permissions": 1, "active": 1})
+        if role and role.get("active") is not False:
+            return {k: bool(role.get("permissions", {}).get(k, False)) for k in PERMISSION_KEYS}
+    # Legacy fallback: admin → all; sales → most; tech → jobs only
+    legacy = user.get("role")
+    if legacy == "admin":
+        return {k: True for k in PERMISSION_KEYS if k != "system_settings"}
+    if legacy == "sales":
+        return {k: k in {"dashboard","customers","segments","vehicles","quotations","jobs",
+                         "inventory_categories","inventory_products","reports"} for k in PERMISSION_KEYS}
+    if legacy == "technician":
+        return {k: k in {"dashboard","jobs"} for k in PERMISSION_KEYS}
+    return {k: False for k in PERMISSION_KEYS}
+
+def _user_full_name(u: dict) -> str:
+    fn = u.get("first_name") or ""
+    ln = u.get("last_name") or ""
+    full = f"{fn} {ln}".strip()
+    return full or u.get("name") or u.get("email") or ""
+
+async def _enrich_user(u: dict) -> dict:
+    if u.get("role_id"):
+        r = await db.roles.find_one({"id": u["role_id"]}, {"_id": 0, "name": 1})
+        if r: u["role_name"] = r["name"]
+    return u
+
 @api.get("/users")
-async def list_users(user=Depends(require_roles("admin"))):
-    return await db.users.find({}, {"_id": 0, "password": 0}).to_list(500)
+async def list_users(user=Depends(get_current_user)):
+    if not (user.get("is_master") or user.get("role") == "admin"):
+        # Allow other roles only minimal fields for filter dropdowns (creator filter)
+        rows = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "first_name": 1, "last_name": 1}).to_list(500)
+        for r in rows:
+            r["name"] = _user_full_name(r) or r.get("name") or ""
+        return rows
+    rows = await db.users.find({}, {"_id": 0, "password": 0}).to_list(500)
+    for r in rows:
+        r["name"] = _user_full_name(r) or r.get("name") or ""
+        await _enrich_user(r)
+    return rows
 
 @api.get("/users/technicians")
 async def list_techs(user=Depends(get_current_user)):
@@ -298,15 +405,30 @@ async def list_techs(user=Depends(get_current_user)):
 
 @api.post("/users")
 async def create_user(body: UserCreate, user=Depends(require_roles("admin"))):
-    if await db.users.find_one({"email": body.email.lower()}):
+    fn = (body.first_name or "").strip()
+    ln = (body.last_name or "").strip()
+    name = body.name or f"{fn} {ln}".strip() or "Unnamed"
+    mobile = (body.mobile or "").strip()
+    email = (body.email or "").strip().lower() or None
+    if not email and not mobile:
+        raise HTTPException(400, "Provide mobile (or email) for the user.")
+    if email and await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already exists")
+    if mobile and await db.users.find_one({"mobile": mobile}):
+        raise HTTPException(400, "Mobile already exists")
+    pwd = body.password or "wetworks123"  # default temp; admin should set
     doc = {
-        "id": new_id(), "name": body.name, "email": body.email.lower(),
-        "role": body.role, "password": hash_password(body.password), "active": True,
+        "id": new_id(), "name": name,
+        "first_name": fn or None, "last_name": ln or None,
+        "email": email, "mobile": mobile or None,
+        "role_id": body.role_id, "is_master": bool(body.is_master),
+        "role": body.role or "sales",  # legacy field for back-compat
+        "password": hash_password(pwd), "active": body.active if body.active is not None else True,
     }
     audit(user, doc)
     await db.users.insert_one(doc.copy())
     doc.pop("password", None)
+    await _enrich_user(doc)
     return doc
 
 @api.patch("/users/{uid}")
@@ -314,14 +436,241 @@ async def update_user(uid: str, body: UserUpdate, user=Depends(require_roles("ad
     upd = {k: v for k, v in body.model_dump(exclude_none=True).items()}
     if "password" in upd:
         upd["password"] = hash_password(upd["password"])
+    if "first_name" in upd or "last_name" in upd or "name" in upd:
+        cur = await db.users.find_one({"id": uid}, {"_id": 0, "first_name": 1, "last_name": 1, "name": 1})
+        if cur:
+            fn = upd.get("first_name", cur.get("first_name") or "")
+            ln = upd.get("last_name", cur.get("last_name") or "")
+            full = f"{fn} {ln}".strip()
+            if full: upd["name"] = full
+    # Only existing master can grant master
+    if "is_master" in upd and upd["is_master"] and not user.get("is_master"):
+        raise HTTPException(403, "Only a master admin can grant master privileges.")
     audit(user, upd, creating=False)
     await db.users.update_one({"id": uid}, {"$set": upd})
-    return await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+    out = await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+    return await _enrich_user(out) if out else out
 
 @api.delete("/users/{uid}")
 async def delete_user(uid: str, user=Depends(require_roles("admin"))):
+    target = await db.users.find_one({"id": uid}, {"_id": 0, "is_master": 1})
+    if target and target.get("is_master") and not user.get("is_master"):
+        raise HTTPException(403, "Cannot delete a master admin")
+    if target and target.get("is_master"):
+        # Don't allow self-delete of last master
+        masters = await db.users.count_documents({"is_master": True, "active": {"$ne": False}})
+        if masters <= 1:
+            raise HTTPException(400, "Cannot delete the last master admin")
     await db.users.delete_one({"id": uid})
     return {"ok": True}
+
+# ---------------- Roles ----------------
+@api.get("/roles")
+async def list_roles(user=Depends(get_current_user)):
+    rows = await db.roles.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    # Count users per role
+    rids = [r["id"] for r in rows]
+    counts = {}
+    if rids:
+        agg = db.users.aggregate([
+            {"$match": {"role_id": {"$in": rids}}},
+            {"$group": {"_id": "$role_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] async for r in agg}
+    for r in rows:
+        r["user_count"] = counts.get(r["id"], 0)
+    return rows
+
+@api.post("/roles")
+async def create_role(body: RoleIn, user=Depends(require_roles("admin"))):
+    if await db.roles.find_one({"name": body.name.strip()}):
+        raise HTTPException(400, "Role name already exists")
+    perms = {k: bool(body.permissions.get(k, False)) for k in PERMISSION_KEYS}
+    doc = {"id": new_id(), "name": body.name.strip(),
+           "description": clean_str(body.description), "active": body.active,
+           "permissions": perms}
+    audit(user, doc)
+    await db.roles.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+@api.patch("/roles/{rid}")
+async def update_role(rid: str, body: RoleIn, user=Depends(require_roles("admin"))):
+    perms = {k: bool(body.permissions.get(k, False)) for k in PERMISSION_KEYS}
+    upd = {"name": body.name.strip(), "description": clean_str(body.description),
+           "active": body.active, "permissions": perms}
+    audit(user, upd, creating=False)
+    await db.roles.update_one({"id": rid}, {"$set": upd})
+    return await db.roles.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/roles/{rid}")
+async def delete_role(rid: str, user=Depends(require_roles("admin"))):
+    linked = await db.users.count_documents({"role_id": rid})
+    if linked:
+        raise HTTPException(400, f"Cannot delete: {linked} user(s) assigned. Reassign first or mark inactive.")
+    await db.roles.delete_one({"id": rid})
+    return {"ok": True}
+
+@api.get("/permission-keys")
+async def get_permission_keys(user=Depends(get_current_user)):
+    return PERMISSION_KEYS
+
+# ---------------- Vehicle Brands & Models (Phase 4 management) ----------------
+@api.get("/vehicle-brands")
+async def list_brands(q: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if q:
+        flt["name"] = {"$regex": q, "$options": "i"}
+    rows = await db.vehicle_brands.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
+    bids = [r["id"] for r in rows]
+    counts = {}
+    if bids:
+        agg = db.vehicle_models.aggregate([
+            {"$match": {"brand_id": {"$in": bids}}},
+            {"$group": {"_id": "$brand_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] async for r in agg}
+    for r in rows:
+        r["model_count"] = counts.get(r["id"], 0)
+    return rows
+
+@api.post("/vehicle-brands")
+async def create_brand(body: VehicleBrandIn, user=Depends(require_roles("admin"))):
+    if await db.vehicle_brands.find_one({"name": body.name.strip()}):
+        raise HTTPException(400, "Brand already exists")
+    doc = {"id": new_id(), "name": body.name.strip(), "active": body.active}
+    audit(user, doc)
+    await db.vehicle_brands.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/vehicle-brands/{bid}")
+async def update_brand(bid: str, body: VehicleBrandIn, user=Depends(require_roles("admin"))):
+    upd = {"name": body.name.strip(), "active": body.active}
+    audit(user, upd, creating=False)
+    await db.vehicle_brands.update_one({"id": bid}, {"$set": upd})
+    return await db.vehicle_brands.find_one({"id": bid}, {"_id": 0})
+
+@api.delete("/vehicle-brands/{bid}")
+async def delete_brand(bid: str, user=Depends(require_roles("admin"))):
+    cnt = await db.vehicle_models.count_documents({"brand_id": bid})
+    if cnt:
+        raise HTTPException(400, f"Cannot delete: {cnt} model(s) under this brand. Delete models first or mark brand inactive.")
+    brand = await db.vehicle_brands.find_one({"id": bid}, {"_id": 0, "name": 1})
+    if brand:
+        v = await db.vehicles.count_documents({"make": brand["name"]})
+        if v:
+            raise HTTPException(400, f"Cannot delete: {v} vehicle(s) reference this brand.")
+    await db.vehicle_brands.delete_one({"id": bid})
+    return {"ok": True}
+
+@api.get("/vehicle-models")
+async def list_models(brand_id: Optional[str] = None, user=Depends(get_current_user)):
+    flt: Dict[str, Any] = {}
+    if brand_id:
+        flt["brand_id"] = brand_id
+    rows = await db.vehicle_models.find(flt, {"_id": 0}).sort("name", 1).to_list(5000)
+    return rows
+
+@api.post("/vehicle-models")
+async def create_model(body: VehicleModelIn, user=Depends(require_roles("admin"))):
+    brand = await db.vehicle_brands.find_one({"id": body.brand_id}, {"_id": 0, "name": 1})
+    if not brand:
+        raise HTTPException(400, "Brand not found")
+    if await db.vehicle_models.find_one({"brand_id": body.brand_id, "name": body.name.strip()}):
+        raise HTTPException(400, "Model already exists for this brand")
+    doc = {"id": new_id(), "brand_id": body.brand_id, "brand_name": brand["name"],
+           "name": body.name.strip(), "vehicle_type": body.vehicle_type,
+           "active": body.active}
+    audit(user, doc)
+    await db.vehicle_models.insert_one(doc.copy())
+    doc.pop("_id", None); return doc
+
+@api.patch("/vehicle-models/{mid}")
+async def update_model(mid: str, body: VehicleModelIn, user=Depends(require_roles("admin"))):
+    brand = await db.vehicle_brands.find_one({"id": body.brand_id}, {"_id": 0, "name": 1})
+    if not brand:
+        raise HTTPException(400, "Brand not found")
+    upd = {"brand_id": body.brand_id, "brand_name": brand["name"],
+           "name": body.name.strip(), "vehicle_type": body.vehicle_type,
+           "active": body.active}
+    audit(user, upd, creating=False)
+    await db.vehicle_models.update_one({"id": mid}, {"$set": upd})
+    return await db.vehicle_models.find_one({"id": mid}, {"_id": 0})
+
+@api.delete("/vehicle-models/{mid}")
+async def delete_model(mid: str, user=Depends(require_roles("admin"))):
+    m = await db.vehicle_models.find_one({"id": mid}, {"_id": 0, "name": 1, "brand_name": 1})
+    if m:
+        v = await db.vehicles.count_documents({"make": m["brand_name"], "model": m["name"]})
+        if v:
+            raise HTTPException(400, f"Cannot delete: {v} vehicle(s) use this model. Mark inactive instead.")
+    await db.vehicle_models.delete_one({"id": mid})
+    return {"ok": True}
+
+# ---------------- System Settings (Master Admin only) ----------------
+def _mask_secret(v: Any) -> Any:
+    if not v: return v
+    s = str(v)
+    if len(s) <= 4: return "•" * len(s)
+    return s[:2] + "•" * (len(s) - 6) + s[-4:]
+
+SECRET_KEYS = {"api_key", "api_secret", "access_token", "secret", "password", "smtp_password", "webhook_secret"}
+
+def _mask_integration(cfg: dict) -> dict:
+    out = {**cfg}
+    fields = dict(out.get("fields") or {})
+    for k in list(fields.keys()):
+        if k.lower() in SECRET_KEYS or k.lower().endswith("_secret") or k.lower().endswith("_token"):
+            fields[k] = _mask_secret(fields[k])
+    out["fields"] = fields
+    return out
+
+def _require_master(user):
+    if not user.get("is_master"):
+        raise HTTPException(403, "Master admin only")
+
+@api.get("/system-settings")
+async def get_system_settings(user=Depends(get_current_user)):
+    # Anyone authed can read feature flags (used to gate UI), but secrets are masked
+    doc = await db.system_settings.find_one({"_id": "singleton"}, {"_id": 0}) or {}
+    toggles = doc.get("toggles") or FeatureTogglesIn().model_dump()
+    integrations = {}
+    for name, cfg in (doc.get("integrations") or {}).items():
+        integrations[name] = _mask_integration(cfg)
+    return {"toggles": toggles, "integrations": integrations,
+            "is_master": bool(user.get("is_master"))}
+
+@api.put("/system-settings/toggles")
+async def update_toggles(body: FeatureTogglesIn, user=Depends(get_current_user)):
+    _require_master(user)
+    await db.system_settings.update_one(
+        {"_id": "singleton"},
+        {"$set": {"toggles": body.model_dump(), "updated_at": now_iso(), "updated_by": user["id"]}},
+        upsert=True,
+    )
+    return body.model_dump()
+
+@api.put("/system-settings/integrations/{name}")
+async def update_integration(name: str, body: IntegrationConfigIn, user=Depends(get_current_user)):
+    _require_master(user)
+    name = name.strip().lower()
+    allowed = {"tap", "myfatoorah", "ottu", "whatsapp", "email_smtp"}
+    if name not in allowed:
+        raise HTTPException(400, f"Unknown integration: must be one of {', '.join(allowed)}")
+    # Don't overwrite secrets if client sent the masked value (contains •)
+    existing = await db.system_settings.find_one({"_id": "singleton"}, {"_id": 0, "integrations": 1}) or {}
+    cur_fields = ((existing.get("integrations") or {}).get(name) or {}).get("fields", {})
+    new_fields = dict(body.fields or {})
+    for k, v in list(new_fields.items()):
+        if isinstance(v, str) and "•" in v and k in cur_fields:
+            new_fields[k] = cur_fields[k]
+    cfg = {"enabled": body.enabled, "fields": new_fields, "updated_at": now_iso(), "updated_by": user["id"]}
+    await db.system_settings.update_one(
+        {"_id": "singleton"},
+        {"$set": {f"integrations.{name}": cfg}},
+        upsert=True,
+    )
+    return _mask_integration(cfg)
 
 # ---------------- Customers ----------------
 @api.get("/customers")
@@ -2036,6 +2385,40 @@ async def startup():
         await _migrate_inv_to_default()
     except Exception as e:
         logger.warning(f"Inventory migration skipped: {e}")
+    # Phase 4: seed Administrator role + promote existing admin user(s) to master
+    try:
+        await _phase4_migrate()
+    except Exception as e:
+        logger.warning(f"Phase 4 migration skipped: {e}")
+
+async def _phase4_migrate():
+    # Ensure singleton system_settings exists with conservative defaults
+    if not await db.system_settings.find_one({"_id": "singleton"}):
+        await db.system_settings.insert_one({
+            "_id": "singleton",
+            "toggles": FeatureTogglesIn().model_dump(),
+            "integrations": {},
+        })
+    # Seed an "Administrator" role with all permissions if no roles exist
+    if await db.roles.count_documents({}) == 0:
+        admin_role = {
+            "id": new_id(), "name": "Administrator",
+            "description": "Full access (auto-created on first run)",
+            "active": True,
+            "permissions": {k: True for k in PERMISSION_KEYS},
+            "created_at": now_iso(), "updated_at": now_iso(),
+        }
+        await db.roles.insert_one(admin_role)
+    admin_role = await db.roles.find_one({"name": "Administrator"}, {"_id": 0, "id": 1})
+    if admin_role:
+        # Promote any existing 'admin' to is_master=True (first-time migration)
+        await db.users.update_many(
+            {"role": "admin", "is_master": {"$exists": False}},
+            {"$set": {"is_master": True, "role_id": admin_role["id"]}})
+        # Backfill role_id for any user without one (legacy admin/sales/tech users)
+        await db.users.update_many(
+            {"role_id": {"$exists": False}},
+            {"$set": {"role_id": admin_role["id"]}})
 
 @app.on_event("shutdown")
 async def shutdown():

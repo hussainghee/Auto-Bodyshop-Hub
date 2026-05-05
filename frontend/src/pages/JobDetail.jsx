@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, fileUrl, fmtKWD, fmtDateTime, waLink } from "../lib/api";
+import { useSystemSettings } from "../lib/settings";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import BrandedDocument from "../components/BrandedDocument";
@@ -33,6 +34,8 @@ const DEFAULT_CHECKLIST = [
 export default function JobDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const settings = useSystemSettings();
+  const waEnabled = !!settings?.toggles?.whatsapp_enabled;
   const [job, setJob] = useState(null);
   const [techs, setTechs] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -209,7 +212,7 @@ export default function JobDetail() {
         actions={<>
           <Link to="/jobs" className="no-print"><Button variant="outline" className="border-border rounded-sm">← Back</Button></Link>
           <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print" data-testid="print-invoice"><Printer size={14} className="mr-1.5" /> Print {job.invoice_number ? "Invoice" : "Job Card"}</Button>
-          {job.customer?.mobile && (
+          {job.customer?.mobile && waEnabled && (
             <a href={waLink(job.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print">
               <Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-invoice"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button>
             </a>
@@ -435,9 +438,11 @@ export default function JobDetail() {
               <Select value={payment.method} onValueChange={(v) => setPayment({...payment, method: v})}>
                 <SelectTrigger className="mt-1 bg-background border-border rounded-sm" data-testid="payment-method"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-[#0F1115] border-border">
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="knet">K-net</SelectItem>
-                  <SelectItem value="credit_card">Credit Card</SelectItem>
+                  {settings?.toggles?.payment_cash !== false && <SelectItem value="cash">Cash</SelectItem>}
+                  {settings?.toggles?.payment_knet !== false && <SelectItem value="knet">K-net</SelectItem>}
+                  {settings?.toggles?.payment_card !== false && <SelectItem value="credit_card">Credit Card</SelectItem>}
+                  {settings?.toggles?.payment_bank_transfer && <SelectItem value="bank_transfer">Bank Transfer</SelectItem>}
+                  {settings?.toggles?.payment_other && <SelectItem value="other">Other</SelectItem>}
                 </SelectContent>
               </Select>
             </div>

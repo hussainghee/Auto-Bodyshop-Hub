@@ -56,8 +56,8 @@ export default function Login() {
 
         <div className="space-y-4">
           <div>
-            <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Email</Label>
-            <Input value={email} onChange={e => setEmail(e.target.value)} type="email" required className="mt-1.5 bg-[#0F1115] border-border h-11 rounded-sm" data-testid="login-email" />
+            <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Email or Mobile</Label>
+            <Input value={email} onChange={e => setEmail(e.target.value)} type="text" required className="mt-1.5 bg-[#0F1115] border-border h-11 rounded-sm" data-testid="login-email" placeholder="admin@wetworks.kw or +965..." />
           </div>
           <div>
             <Label className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Password</Label>

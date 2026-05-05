@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, fmtKWD, fmtDate, waLink } from "../lib/api";
+import { useSystemSettings } from "../lib/settings";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import BrandedDocument from "../components/BrandedDocument";
@@ -25,6 +26,8 @@ const QUOTATION_TERMS = [
 export default function QuotationDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const settings = useSystemSettings();
+  const waEnabled = !!settings?.toggles?.whatsapp_enabled;
   const [q, setQ] = useState(null);
 
   // Edit modal state
@@ -142,7 +145,7 @@ export default function QuotationDetail() {
         actions={<>
           <Link to="/quotations" className="no-print"><Button variant="outline" className="border-border rounded-sm">← Back</Button></Link>
           {canEdit && <Button onClick={openEdit} variant="outline" className="border-border rounded-sm no-print" data-testid="edit-quotation-btn"><Edit3 size={14} className="mr-1.5" /> Edit</Button>}
-          {q.customer?.mobile && <a href={waLink(q.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-quotation"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
+          {q.customer?.mobile && waEnabled && <a href={waLink(q.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-quotation"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
           <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print" data-testid="print-quotation"><Printer size={14} className="mr-1.5" /> Print PDF</Button>
           {q.status !== "approved" && q.status !== "rejected" && (
             <Button onClick={markApproved} className="bg-emerald-600 hover:bg-emerald-500 rounded-sm no-print" data-testid="mark-approved-btn">Mark Approved</Button>

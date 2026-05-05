@@ -11,27 +11,35 @@ import CommandPalette from "./CommandPalette";
 const LOGO = "https://customer-assets.emergentagent.com/job_vehicle-care-crm/artifacts/d5acrado_Wetworks-Logo.jpeg";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","sales","technician"] },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","sales","technician"], perm: "dashboard" },
   {
     label: "Customers", icon: Users, roles: ["admin","sales"],
     children: [
-      { to: "/customers", label: "Customers" },
-      { to: "/customers/segments", label: "Segments" },
+      { to: "/customers", label: "Customers", perm: "customers" },
+      { to: "/customers/segments", label: "Segments", perm: "segments" },
     ],
   },
-  { to: "/vehicles", label: "Vehicles", icon: Car, roles: ["admin","sales"] },
-  { to: "/quotations", label: "Quotations", icon: FileText, roles: ["admin","sales"] },
-  { to: "/jobs", label: "Job Cards", icon: Wrench, roles: ["admin","sales","technician"] },
+  { to: "/vehicles", label: "Vehicles", icon: Car, roles: ["admin","sales"], perm: "vehicles" },
+  { to: "/quotations", label: "Quotations", icon: FileText, roles: ["admin","sales"], perm: "quotations" },
+  { to: "/jobs", label: "Job Cards", icon: Wrench, roles: ["admin","sales","technician"], perm: "jobs" },
   {
     label: "Inventory", icon: Package, roles: ["admin","sales"],
     children: [
-      { to: "/inventory/categories", label: "Categories" },
-      { to: "/inventory", label: "Products" },
+      { to: "/inventory/categories", label: "Categories", perm: "inventory_categories" },
+      { to: "/inventory", label: "Products", perm: "inventory_products" },
     ],
   },
-  { to: "/services", label: "Services", icon: SlidersHorizontal, roles: ["admin"] },
-  { to: "/reports", label: "Reports", icon: BarChart3, roles: ["admin","sales"] },
-  { to: "/settings", label: "Settings", icon: SetIcon, roles: ["admin"] },
+  { to: "/services", label: "Services", icon: SlidersHorizontal, roles: ["admin"], perm: "services" },
+  { to: "/reports", label: "Reports", icon: BarChart3, roles: ["admin","sales"], perm: "reports" },
+  {
+    label: "Settings", icon: SetIcon, roles: ["admin"],
+    children: [
+      { to: "/settings/roles", label: "Roles", perm: "settings_roles" },
+      { to: "/settings/users", label: "Users", perm: "settings_users" },
+      { to: "/settings/vehicle-management", label: "Vehicle Management", perm: "settings_vehicle_management" },
+      { to: "/settings", label: "System Settings", perm: "system_settings" },
+    ],
+  },
 ];
 
 export default function Layout() {
@@ -61,10 +69,18 @@ export default function Layout() {
   useEffect(() => { setMobileNavOpen(false); }, [loc.pathname]);
 
   const items = NAV.filter(n => n.roles.includes(user?.role));
+  const perms = user?.permissions || {};
+  const canSee = (item) => !item.perm || perms[item.perm] !== false;
+  // Filter children too
+  const visibleItems = items.map(it => {
+    if (!it.children) return canSee(it) ? it : null;
+    const kids = it.children.filter(canSee);
+    return kids.length ? { ...it, children: kids } : null;
+  }).filter(Boolean);
 
   const NavList = ({ onNavigate }) => (
     <nav className="py-3 flex-1 overflow-y-auto">
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         if (item.children) {
           const Icon = item.icon;
           const isOpen = openGroup[item.label];
@@ -84,7 +100,7 @@ export default function Layout() {
                 <NavLink
                   key={c.to} to={c.to} end onClick={onNavigate}
                   className={({ isActive }) => `nav-link pl-11 text-[13px] ${isActive ? "active" : ""}`}
-                  data-testid={`nav-${c.label.toLowerCase()}`}
+                  data-testid={`nav-${c.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
                 >
                   {c.label}
                 </NavLink>

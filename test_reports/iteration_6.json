@@ -1,0 +1,56 @@
+{
+  "summary": "Phase 4 Settings (Roles, Users with mobile-login, Vehicle Brand/Model management, System Settings with toggles + integrations) tested end-to-end. Backend: 23/24 PASS in /app/backend/tests/test_phase4_settings_roles_users.py. The single failure is a real masking bug in /api/system-settings/integrations/{name}: the field 'secret_key' is NOT masked because SECRET_KEYS predicate doesn't catch it (no 'secret_key' literal, doesn't end with '_secret' or '_token', and there is no 'starts-with secret_' check). Frontend: all critical Phase 4 flows pass — login label shows 'Email or Mobile', sidebar Settings group expands to 4 children, /settings/roles renders Administrator card with permission chips and creates new roles via dialog with all 4 perm-groups, /settings/users renders + new-user dialog rejects letters in mobile + saves successfully, /settings/vehicle-management creates brands/models with brand-card click → models view, /settings (System Settings) shows 4 tabs and toggle-whatsapp_enabled persists via save-toggles. One minor frontend testid bug fixed by me: child nav items ('Vehicle Management', 'System Settings') were rendering data-testid with a space ('nav-vehicle management') because line 103 of Layout.jsx didn't apply the same regex-replace that line 119 (top-level items) applies — fixed in place; verified all 4 child nav-* testids now resolve.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/system-settings/integrations/tap (and any provider with secret_key)",
+        "issue": "SECRET_KEYS={'api_key','api_secret','access_token','secret','password','smtp_password','webhook_secret'} + endsWith('_secret'|'_token') does NOT match the field name 'secret_key', so its value is returned in PLAINTEXT both on PUT response and on subsequent GET /system-settings. Verified with payload {api_key:'xyz123abcdef', secret_key:'sec_999_realvalue'} → response.fields.secret_key == 'sec_999_realvalue' (not masked). Fix: in _mask_integration, also match keys that start with 'secret' OR end with '_key' AND contain 'secret' OR add 'secret_key' to SECRET_KEYS. Recommended one-liner: change predicate to `k.lower() in SECRET_KEYS or k.lower().endswith(('_secret','_token','_key')) or k.lower().startswith('secret')` — but be careful not to mask innocuous '*_key' fields. Safer: add 'secret_key' to SECRET_KEYS and add startswith('secret_') check."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Layout.jsx (FIXED by testing agent)",
+        "issue": "Child sidebar items used `data-testid={`nav-${c.label.toLowerCase()}`}` without the regex-replace, producing testids with spaces like 'nav-vehicle management' and 'nav-system settings'. Other selectors in the testid map ('nav-roles','nav-users') happened to work because they have no spaces. Fixed by mirroring the parent-item replace: `.toLowerCase().replace(/[^a-z]+/g, '-')`. Verified all 4 testids now resolve.",
+        "selector": "nav-vehicle-management, nav-system-settings",
+        "priority": "MINOR"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All dialogs (Role/User/Brand/Model)", "issues": ["React console warning: 'Missing Description or aria-describedby for DialogContent' — accessibility, non-blocking. Add <DialogDescription> or aria-describedby to silence."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4_settings_roles_users.py",
+    "/app/test_reports/pytest/phase4_results.xml"
+  ],
+  "action_items": [
+    "Fix secret_key masking in /app/backend/server.py _mask_integration: add 'secret_key' to SECRET_KEYS or add startswith('secret_') / endswith('_key') guard. Currently only api_key is masked; secret_key is leaked in plaintext on GET and PUT responses.",
+    "(Optional, low-priority) Add <DialogDescription> to dialogs in Roles.jsx / Users.jsx / VehicleManagement.jsx / SystemSettings.jsx to remove the aria-describedby React warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 2425 lines — strongly recommend splitting into modules (auth/users/roles, vehicles/brands, system_settings, customers, quotations, jobs, inventory, services, reports). Carried from iter3/iter4/iter5.",
+    "_mask_integration predicate is too narrow — see action item. Should also match common provider-secret patterns (secret_key, client_secret already caught by endsWith('_secret') ✓, access_token caught ✓, but secret_key/auth_token-style names are missed).",
+    "_phase4_migrate correctly auto-seeds Administrator role with all 14 perms and promotes existing admin@autocrm.kw to is_master=true. Verified by login response.",
+    "Mobile login: backend accepts mobile in EITHER 'email' or 'mobile' field on LoginIn — verified with both forms. Lookup also tolerates a missing leading '+' on either side. Good defensive normalization.",
+    "PERMISSION_KEYS has exactly 14 entries; /api/permission-keys returns the canonical list and frontend Roles.jsx groups them correctly into Operations/Catalog/Insights/Settings.",
+    "DELETE /api/roles correctly blocks 400 when users.role_id references the role; DELETE /api/vehicle-brands blocks when models exist; DELETE /api/vehicle-models blocks when a vehicle.make+model match — all verified.",
+    "Conservative payment toggle defaults applied (cash/knet/card true; bank_transfer/other/payment_gateway/whatsapp/email_smtp false) — verified against fresh GET /api/system-settings.",
+    "UserCreate accepts both new fields (first_name/last_name/mobile/role_id/is_master) and legacy fields (name/email/role); legacy 'role' default 'sales' preserved for back-compat with require_roles dependency on routes that still take role strings.",
+    "Layout.jsx child-item testid generation now mirrors parent's regex-replace (fixed during this test run)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4_settings_roles_users.py (new — 24 tests, 23/24 pass; 1 fail is real backend masking bug)",
+    "/app/frontend/src/components/Layout.jsx (data-testid normalization fix for child nav items)"
+  ],
+  "success_rate": {"backend": "95.8% (23/24 on Phase 4); the failing test is a genuine product bug (secret_key not masked), not a flaky test", "frontend": "100% on Phase 4 critical flows after the testid fix"},
+  "test_credentials": "admin@autocrm.kw/admin123 (master), sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 — per /app/memory/test_credentials.md.",
+  "seed_data_creation": "Tests create+cleanup TEST_role_*, TEST_role_renamed_*, TEST_role_del_*, two TEST_phase4 users (with random KW mobile numbers), TEST_Brand_*, TEST_Model_X, TEST_phase4_brand_lock customer. UI test left behind: 1 TEST_UI_Role_*, 1 TEST_UI_Brand_*+TEST_UI_Model_*, 1 TEST UIUser user (with auto-generated mobile +96588555####). All under TEST_ prefix for easy cleanup.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 regression suite is at /app/backend/tests/test_phase4_settings_roles_users.py (24 tests). Once the secret_key masking fix lands, the assertion `'•' in masked['fields']['secret_key']` on line ~404 will pass. Run full backend regression with `pytest /app/backend/tests/ -v`. Phase 4 frontend testid map is fully wired now (nav-roles, nav-users, nav-vehicle-management, nav-system-settings all resolve). The /settings (System Settings) page has tabs tab-toggles, tab-payment-providers, tab-whatsapp, tab-smtp; toggle-whatsapp_enabled persists via save-toggles. wa-share-invoice / email-send-invoice gating on JobDetail/QuotationDetail uses useSystemSettings hook — when toggle is OFF, button is hidden. Don't forget to disable whatsapp_enabled after testing it.",
+  "rca of the issue": "secret_key masking miss: _mask_integration iterates fields and masks if `k.lower() in SECRET_KEYS or k.lower().endswith('_secret') or k.lower().endswith('_token')`. SECRET_KEYS contains 'api_key' (literal) but not 'secret_key'. The field name 'secret_key' doesn't end with '_secret' (it ends with '_key') and doesn't end with '_token'. Result: tap.secret_key returns in plaintext on PUT response and on every subsequent GET. Reproduction: PUT /api/system-settings/integrations/tap {enabled:true, fields:{secret_key:'plain_secret_value'}} → response.fields.secret_key == 'plain_secret_value'. Mitigation: extend the predicate to include `or k.lower().startswith('secret') or k.lower() == 'secret_key'`. Also worth re-auditing all expected provider field names (Tap: api_key/secret_key/environment, MyFatoorah: api_key/api_token/environment, OTTU: merchant_id/api_key/secret, WhatsApp: phone_number_id/access_token, SMTP: host/port/username/password) to ensure every secret-bearing one is covered."
+}
