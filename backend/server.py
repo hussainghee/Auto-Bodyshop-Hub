@@ -2008,6 +2008,8 @@ async def seed(reseed: bool = False, user=Depends(get_current_user) if False els
          "created_at": now_iso(), "updated_at": now_iso()},
     ]
     await db.inventory.insert_many([i.copy() for i in inventory])
+    # Phase 3: ensure migration runs immediately so Uncategorized.product_count is correct
+    await _migrate_inv_to_default()
 
     return {"seeded": True, "users": len(users), "vehicle_types": len(vts),
             "vehicle_makes": len(makes_docs), "services": len(services),

@@ -28,6 +28,17 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 
 ## What's Been Implemented
 
+### Phase 3 — Inventory & Services Restructuring + Payments Report (2026-05-05)
+- **Inventory Categories** (new): `inventory_categories` collection with name/description/active/created_at/created_by; CRUD + Excel export. Default "Uncategorized" auto-created on first run; protected from deletion. Categories with linked products cannot be deleted (must reassign or mark inactive).
+- **Inventory Products** (rewrite): added `category_id`, `sku`, `cost_price`, `selling_price`, `stock_qty`, `reorder_level`, `unit_of_measure`, `active` status; legacy `category` string preserved for back-compat. List endpoint supports `?q`, `?category_id`, `?status`. Excel export `/export/inventory` honours filters and names file by category.
+- **Migration**: legacy items without `category_id` auto-assigned to Uncategorized on backend startup AND inside `/seed` (fixes ordering issue surfaced in iter5).
+- **Sidebar**: Inventory becomes a collapsible group → `Categories` + `Products` children.
+- **Services rename**: "Services & Pricing" → **"Services"** in sidebar + page header. Route `/services` unchanged. Page now has tab switcher: Services / Categories.
+- **Service Categories** (new, free-form): `service_categories` collection with name/description/active. Predefined service category enum dropped; existing services keep their legacy `category` string for display, can be reassigned to a `category_id` from Service form. Admin-only mutations.
+- **Payments Report** (new): `GET /reports/payments?start&end&method&received_by` defaults to today; returns payments flat list with payment_date, job#, invoice#, customer name/mobile, plate, method, amount, balance, received_by — plus by-method totals. Excel export `/reports/payments/export` honours filters.
+- **Reports page**: tab switcher (Overview / Payments). Date filter defaults to today. Payments tab includes KPIs (Total Collected, Cash, K-Net, Credit Card), filters (method + received-by) and Excel export.
+- **Tests**: `/app/backend/tests/test_phase3_inventory_services_payments.py` — 26 tests, 26/26 PASS isolated; full regression 90/90 (after fix).
+
 ### Phase 2 — Quotations / Job Cards / Branded PDFs (2026-05-05)
 - **Quotation list**: `?q=` searches number/customer name/mobile/plate. `?status`, `?creator`, `?start`, `?end` filters. List rows now include `created_by_name`. Frontend has filter UI + clickable rows.
 - **Quotation create wizard**: searchable customer list (name/mobile), vehicle dropdown limited to that customer, service search by name/category, **Select Full Vehicle** + **All Panels** + **All Glass** buttons, discount type toggle (Fixed/Percentage), live recompute of subtotal/discount/tax/grand total, hide discount line in summary when 0. After create → navigate to detail page.
