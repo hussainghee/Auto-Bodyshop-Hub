@@ -90,8 +90,8 @@ export default function Quotations() {
   const needsAreas = needsPanel || needsGlass;
 
   const steps = useMemo(() => needsAreas
-    ? ["Customer & Vehicle", "Services", "Areas", "Review"]
-    : ["Customer & Vehicle", "Services", "Review"], [needsAreas]);
+    ? ["Customer", "Services", "Areas", "Review"]
+    : ["Customer", "Services", "Review"], [needsAreas]);
 
   const reset = () => {
     setStep(0); setCustomerId(""); setVehicleId(""); setPanelSel([]); setGlassSel([]);
@@ -317,15 +317,22 @@ export default function Quotations() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-5xl max-h-[92vh] overflow-y-auto w-[calc(100vw-1.5rem)] sm:w-auto">
+        <DialogContent className="bg-[#0F1115] border-border rounded-sm max-w-[1100px] w-[calc(100vw-1.5rem)] max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display text-2xl font-black tracking-tighter">New Quotation</DialogTitle>
-            <div className="flex items-center gap-2 mt-3 overflow-x-auto">
-              {steps.map((s, i) => (
-                <div key={i} className={`flex-1 min-w-[110px] px-3 py-2 border rounded-sm text-xs uppercase tracking-wider whitespace-nowrap ${i === step ? "bg-[#0066FF] border-[#0066FF] text-white" : i < step ? "border-[#0066FF]/40 text-[#3385FF]" : "border-border text-muted-foreground"}`}>
-                  {i + 1}. {s}
-                </div>
-              ))}
+            <div className="flex items-stretch gap-2 mt-3">
+              {steps.map((s, i) => {
+                const active = i === step;
+                const done = i < step;
+                return (
+                  <div key={i}
+                    className={`flex-1 min-w-0 px-3 py-2 border rounded-sm text-[11px] sm:text-xs uppercase tracking-wider truncate text-center ${active ? "bg-[#0066FF] border-[#0066FF] text-white" : done ? "border-[#0066FF]/40 text-[#3385FF]" : "border-border text-muted-foreground"}`}
+                    title={`${i + 1}. ${s}`}
+                  >
+                    <span className="font-mono-data mr-1">{i + 1}.</span>{s}
+                  </div>
+                );
+              })}
             </div>
           </DialogHeader>
 
