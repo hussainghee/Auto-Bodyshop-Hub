@@ -139,16 +139,16 @@ export default function Layout() {
       </aside>
 
       {/* Mobile drawer */}
-      {mobileNavOpen && (
-        <>
-          <div className="md:hidden fixed inset-0 z-40 bg-black/70" onClick={() => setMobileNavOpen(false)} data-testid="mobile-nav-overlay" />
-          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-64 border-r border-border bg-[#0a0b0e] flex flex-col" data-testid="mobile-sidebar">
-            <Brand />
-            <NavList onNavigate={() => setMobileNavOpen(false)} />
-            <UserFooter />
-          </aside>
-        </>
-      )}
+      <div className={`md:hidden fixed inset-0 z-40 bg-black/70 transition-opacity ${mobileNavOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`} onClick={() => setMobileNavOpen(false)} data-testid="mobile-nav-overlay" />
+      <aside
+        className={`md:hidden fixed inset-y-0 left-0 z-50 w-64 border-r border-border bg-[#0a0b0e] flex flex-col transition-transform duration-200 ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}
+        data-testid="mobile-sidebar"
+        aria-hidden={!mobileNavOpen}
+      >
+        <Brand />
+        <NavList onNavigate={() => setMobileNavOpen(false)} />
+        <UserFooter />
+      </aside>
 
       <main className="flex-1 min-w-0 overflow-y-auto flex flex-col">
         <div className="sticky top-0 z-30 bg-[#050505]/95 backdrop-blur-sm border-b border-border px-4 md:px-8 py-3 flex items-center gap-2 no-print">

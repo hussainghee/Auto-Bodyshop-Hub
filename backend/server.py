@@ -518,7 +518,8 @@ def _resolve_discount(lines, discount_type, discount_value, fallback_amount):
     """Return KWD discount amount given a type+value (or fallback to legacy KWD amount)."""
     sub = sum(l["line_total"] for l in lines)
     if discount_type == "percent" and discount_value is not None:
-        return round3(max(sub, 0) * max(discount_value, 0) / 100)
+        pct = max(min(discount_value, 100), 0)  # cap at 100%
+        return round3(max(sub, 0) * pct / 100)
     if discount_type == "amount" and discount_value is not None:
         return round3(max(discount_value, 0))
     return round3(max(fallback_amount or 0, 0))
@@ -777,6 +778,8 @@ async def list_jobs(
     enriched = []
     for r in rows:
         r["created_by_name"] = uname.get(r.get("created_by"), "")
+        if "quotation_number" not in r:
+            r["quotation_number"] = None
         enriched.append(_enrich_job(r))
     return enriched
 
@@ -803,11 +806,20 @@ async def get_job(jid: str, user=Depends(get_current_user)):
 async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_roles("admin", "sales"))):
     job = await db.jobs.find_one({"id": jid})
     if not job: raise HTTPException(404)
-    discount = body.discount if body.discount is not None else job.get("discount", 0)
     tax_rate = body.tax_rate if body.tax_rate is not None else job.get("tax_rate", 0)
-    dt = body.discount_type if body.discount_type is not None else job.get("discount_type")
-    dv = body.discount_value if body.discount_value is not None else job.get("discount_value")
-    totals = _calc_totals(job.get("lines", []), discount, tax_rate, dt, dv)
+    # Resolve discount: client-supplied type/value wins; else if a legacy 'discount' float
+    # was sent, treat as type='amount' RESET; else fall back to whatever is on the job.
+    if body.discount_type is not None or body.discount_value is not None:
+        dt = body.discount_type if body.discount_type is not None else "amount"
+        dv = body.discount_value if body.discount_value is not None else (body.discount or 0)
+        discount_legacy = body.discount if body.discount is not None else job.get("discount", 0)
+    elif body.discount is not None:
+        dt = "amount"; dv = body.discount; discount_legacy = body.discount
+    else:
+        dt = job.get("discount_type")
+        dv = job.get("discount_value")
+        discount_legacy = job.get("discount", 0)
+    totals = _calc_totals(job.get("lines", []), discount_legacy, tax_rate, dt, dv)
     upd = {**totals}
     if body.notes is not None:
         upd["notes"] = body.notes

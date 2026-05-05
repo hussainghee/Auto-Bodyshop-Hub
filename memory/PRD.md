@@ -28,6 +28,31 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 
 ## What's Been Implemented
 
+### Phase 2 — Quotations / Job Cards / Branded PDFs (2026-05-05)
+- **Quotation list**: `?q=` searches number/customer name/mobile/plate. `?status`, `?creator`, `?start`, `?end` filters. List rows now include `created_by_name`. Frontend has filter UI + clickable rows.
+- **Quotation create wizard**: searchable customer list (name/mobile), vehicle dropdown limited to that customer, service search by name/category, **Select Full Vehicle** + **All Panels** + **All Glass** buttons, discount type toggle (Fixed/Percentage), live recompute of subtotal/discount/tax/grand total, hide discount line in summary when 0. After create → navigate to detail page.
+- **Discount data model** (quotations + jobs): `discount` (KWD amount), `discount_type` (`amount`|`percent`), `discount_value` (raw user input). `_calc_totals` + `_resolve_discount` handle both new payload and legacy `{discount: <kwd>}` (legacy treated as type=amount). Percent capped at 100%.
+- **Quotation detail**:
+  - Removed **Mark Sent**.
+  - **Mark Approved** atomically sets status + auto-creates job card (idempotent — no duplicates) and frontend redirects to `/jobs/<id>`.
+  - Linked-job button shows on already-approved quotations.
+  - Edit modal supports the same discount-type controls.
+- **Job list**: filters (status/creator/from/to) and search (`q` matches job#/invoice#/quotation#/customer name/mobile/plate). Always returns `quotation_number` (null when no link).
+- **Job detail**: Job Timer **removed**. New "Job Info" side card shows linked quotation (clickable to navigate back), creator name, created/completed timestamps. Invoice edit modal supports discount type/value.
+- **Branded PDF** (`BrandedDocument.jsx`) used by both quotation and invoice:
+  - Wetworks logo + wordmark + KW address/contact placeholders
+  - Title, status badge, meta panel (issue date, valid-until, created-by, job#, quotation#)
+  - Bill-to + Vehicle blocks
+  - Service line table with Qty / Unit Price / Total (aligned headings)
+  - Totals card (Subtotal / Discount only-if-set / Tax / Grand Total / Paid + Balance for invoice)
+  - Payments table on invoices
+  - Notes + Terms & Conditions section
+  - Print-page CSS hides app chrome and outputs A4 pages
+  - **No "Made with Emergent"** anywhere
+- **WhatsApp share** (`waShareDocument` helper): opens wa.me with templated message including link to the doc URL. Works on both quotation and invoice.
+- **Mobile drawer** rewrite: always-mounted with `translate-x` slide animation (resolves the iter3/iter4 testid-not-found false positive). Smooth slide-in on hamburger click.
+- **Tests**: `/app/backend/tests/test_phase2_quotations_jobs.py` (15 tests).
+
 ### Phase 1.1 — Bug-fixes & Mobile Responsiveness (2026-05-05)
 - **Segment Detail page** (`/customers/segments/:id`): name, description, created date, created by, filter chips, customer count, customer table (Name/Mobile/Email/Vehicle(s)/Registered) with WhatsApp deep-link, in-segment search by name/mobile, Excel export. Mobile: customers render as cards instead of table.
 - **Multi-select segment filters**: `makes`, `models`, `years`, `colors`, `vehicle_types`, `cities` now accept arrays. Logic: OR-within-group, AND-across-groups. Legacy single-value fields preserved for backward compatibility.
