@@ -28,6 +28,21 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 
 ## What's Been Implemented
 
+### Phase 1.1 — Bug-fixes & Mobile Responsiveness (2026-05-05)
+- **Segment Detail page** (`/customers/segments/:id`): name, description, created date, created by, filter chips, customer count, customer table (Name/Mobile/Email/Vehicle(s)/Registered) with WhatsApp deep-link, in-segment search by name/mobile, Excel export. Mobile: customers render as cards instead of table.
+- **Multi-select segment filters**: `makes`, `models`, `years`, `colors`, `vehicle_types`, `cities` now accept arrays. Logic: OR-within-group, AND-across-groups. Legacy single-value fields preserved for backward compatibility.
+- **Searchable multi-select combobox** (`MultiSelectCombobox.jsx`): Popover + cmdk Command, type-to-search, multi-tag display, used for brand/model/year/color/type/city in Segment form. Models filter to selected brands; if no brands chosen, allow global search across all models.
+- **Mobile responsiveness**:
+  - Layout: hamburger button + slide-in drawer on screens <md. Desktop sidebar unchanged.
+  - PageHeader: stacks title/actions on mobile.
+  - Customers, Vehicles, Dashboard tables: `min-w` + horizontal scroll; secondary columns hidden below md/lg.
+  - Customer + Segment dialogs: 1-col on mobile, full-width minus margin.
+  - Segment Detail: card layout on mobile, table on desktop.
+- **Mobile number validation** (Customer create/edit): backend `field_validator` rejects letters/spaces/symbols (allows optional leading `+`). Frontend `onKeyDown` blocks alphabetic input; sanitises paste.
+- **Numeric-only inputs**: year, recent_days, min/max job count, min/max total spend (all stripped via `replace(/\D/g,"")` or `/[^0-9.]/g`). Plate, VIN, color, name, email, address remain free-text.
+- **Backend extras**: `GET /api/segments/:id` enriches each customer with `vehicles[]`, supports `?q=` filter, returns `created_by_name`. Segment Excel export includes a `Vehicles` column.
+- **Tests**: `/app/backend/tests/test_iter3_segments_mobile.py` — 13/13 PASS; full regression 49/49 green.
+
 ### Phase 1 — Wetworks Rebrand + CRM Hardening (2026-05-04)
 - **Branding**: Wetworks logo on login page + sidebar, "Wetworks" / "CRM" wordmark replacing previous AUTO/CRM
 - **Sidebar**: Calendar removed; Customers group with `Customers` + `Segments` children (auto-expands on child routes; toggle is no-op when on an active child)

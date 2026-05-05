@@ -1316,6 +1316,8 @@ async def create_segment(body: SegmentIn, user=Depends(require_roles("admin", "s
 async def get_segment(sid: str, q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
     s = await db.segments.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404)
+    by = await db.users.find_one({"id": s.get("created_by")}, {"_id": 0, "name": 1})
+    s["created_by_name"] = by.get("name") if by else ""
     customers = await _apply_segment_filters(SegmentFilter(**s["filters"]))
     # Enrich with vehicles (first match) for the segment detail view
     cids = [c["id"] for c in customers]

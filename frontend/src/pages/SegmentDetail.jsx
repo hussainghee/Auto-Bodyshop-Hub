@@ -153,7 +153,14 @@ export default function SegmentDetail() {
                     {(c.vehicles || []).slice(0, 2).map(v => `${v.make} ${v.model}${v.year ? ` (${v.year})` : ""}`).join(" · ") || "No vehicles"}
                   </div>
                 </div>
-                <a href={waLink(c.mobile)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-emerald-400 hover:text-emerald-300 p-1"><MessageCircle size={16} /></a>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(waLink(c.mobile), "_blank", "noopener"); }}
+                  className="text-emerald-400 hover:text-emerald-300 p-1"
+                  aria-label="Open WhatsApp"
+                >
+                  <MessageCircle size={16} />
+                </button>
               </div>
               <div className="text-[11px] text-muted-foreground mt-2">Registered {c.created_at ? fmtDate(c.created_at) : "—"}</div>
             </Link>
