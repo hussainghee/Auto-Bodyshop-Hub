@@ -9,7 +9,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Plus, Trash2, ChevronRight, ChevronLeft, Hourglass, Search, Filter, X, Check } from "lucide-react";
+import { Plus, Trash2, ChevronRight, ChevronLeft, Hourglass, Search, Filter, X } from "lucide-react";
 import { toast } from "sonner";
 
 const round3 = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -305,31 +305,52 @@ export default function Quotations() {
             </div>
           </DialogHeader>
 
-          <div className="mt-4 min-h-[400px]" data-testid="quotation-wizard">
+          <div className="mt-4" data-testid="quotation-wizard">
             {step === 0 && (
               <div className="space-y-4">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-[10px] uppercase tracking-wider">Search Customer</Label>
-                    <div className="relative mt-1">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                      <Input placeholder="Type name or mobile…" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} className="pl-9 bg-background border-border rounded-sm h-10" data-testid="wizard-customer-search" />
-                    </div>
-                    <div className="mt-2 border border-border rounded-sm divide-y divide-border max-h-[260px] overflow-y-auto">
-                      {filteredCustomers.length === 0 && <div className="p-3 text-xs text-muted-foreground text-center">No customers match.</div>}
-                      {filteredCustomers.map(c => (
-                        <button key={c.id} type="button" onClick={() => { setCustomerId(c.id); setVehicleId(""); }}
-                          className={`w-full text-left px-3 py-2 hover:bg-white/[0.03] flex items-center justify-between gap-2 ${customerId === c.id ? "bg-[#0066FF]/10" : ""}`}
-                          data-testid={`wizard-pick-customer-${c.id}`}
-                        >
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold truncate">{c.name}</div>
-                            <div className="text-[11px] font-mono-data text-muted-foreground truncate">{c.mobile}</div>
+                    <Label className="text-[10px] uppercase tracking-wider">Customer</Label>
+                    {customerId && !customerSearch ? (
+                      // Selected state — compact card with Change button
+                      <div className="mt-1 border border-[#0066FF]/40 bg-[#0066FF]/5 rounded-sm p-3 flex items-start justify-between gap-2" data-testid="wizard-customer-selected">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold truncate">{customers.find(c => c.id === customerId)?.name}</div>
+                          <div className="text-[11px] font-mono-data text-muted-foreground truncate">{customers.find(c => c.id === customerId)?.mobile}</div>
+                        </div>
+                        <button type="button" onClick={() => { setCustomerId(""); setVehicleId(""); }} className="text-[11px] text-[#3385FF] hover:underline shrink-0" data-testid="wizard-change-customer">Change</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative mt-1">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                          <Input placeholder="Type name or mobile to search…" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)}
+                            className="pl-9 bg-background border-border rounded-sm h-10" data-testid="wizard-customer-search" autoFocus />
+                        </div>
+                        {/* Results: only when user has typed something */}
+                        {customerSearch.trim().length > 0 && (
+                          <div className="mt-2 border border-border rounded-sm divide-y divide-border max-h-[220px] overflow-y-auto" data-testid="wizard-customer-results">
+                            {filteredCustomers.length === 0 && <div className="p-3 text-xs text-muted-foreground text-center">No customers match.</div>}
+                            {filteredCustomers.slice(0, 8).map(c => (
+                              <button key={c.id} type="button" onClick={() => { setCustomerId(c.id); setVehicleId(""); setCustomerSearch(""); }}
+                                className="w-full text-left px-3 py-2 hover:bg-white/[0.03] flex items-center justify-between gap-2"
+                                data-testid={`wizard-pick-customer-${c.id}`}>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate">{c.name}</div>
+                                  <div className="text-[11px] font-mono-data text-muted-foreground truncate">{c.mobile}</div>
+                                </div>
+                              </button>
+                            ))}
+                            {filteredCustomers.length > 8 && (
+                              <div className="px-3 py-1.5 text-[11px] text-muted-foreground text-center">+{filteredCustomers.length - 8} more — refine your search</div>
+                            )}
                           </div>
-                          {customerId === c.id && <Check size={14} className="text-[#3385FF] shrink-0" />}
-                        </button>
-                      ))}
-                    </div>
+                        )}
+                        {customerSearch.trim().length === 0 && (
+                          <div className="mt-2 text-[11px] text-muted-foreground">Start typing to search by name or mobile.</div>
+                        )}
+                      </>
+                    )}
                   </div>
                   <div>
                     <Label className="text-[10px] uppercase tracking-wider">Vehicle (linked to customer)</Label>
