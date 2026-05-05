@@ -38,6 +38,11 @@ export default function Quotations() {
   const [step, setStep] = useState(0);
   const [customerSearch, setCustomerSearch] = useState("");
   const [serviceSearch, setServiceSearch] = useState("");
+  // Quick-add customer state
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [qaName, setQaName] = useState("");
+  const [qaMobile, setQaMobile] = useState("");
+  const [qaSaving, setQaSaving] = useState(false);
   const [customerId, setCustomerId] = useState(params.get("customer") || "");
   const [vehicleId, setVehicleId] = useState(params.get("vehicle") || "");
   const [selectedServices, setSelectedServices] = useState([]);
@@ -93,6 +98,25 @@ export default function Quotations() {
     setSelectedServices([]); setLines([]); setDiscountType("amount"); setDiscountValue(0);
     setTaxRate(0); setNotes(""); setAreaImages({}); setValidUntil("");
     setCustomerSearch(""); setServiceSearch("");
+    setQuickAddOpen(false); setQaName(""); setQaMobile("");
+  };
+
+  const quickAddCustomer = async () => {
+    const name = qaName.trim();
+    const mobile = qaMobile.trim();
+    if (!name || !mobile) { toast.error("Name and mobile required"); return; }
+    setQaSaving(true);
+    try {
+      const { data } = await api.post("/customers", { name, mobile, vehicles: [] });
+      const fresh = (await api.get("/customers")).data;
+      setCustomers(fresh);
+      setCustomerId(data.id);
+      setVehicleId("");
+      setQuickAddOpen(false); setQaName(""); setQaMobile(""); setCustomerSearch("");
+      toast.success(`Added ${data.name}`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Failed to add customer");
+    } finally { setQaSaving(false); }
   };
 
   const filteredCustomers = useMemo(() => {
@@ -320,6 +344,30 @@ export default function Quotations() {
                         </div>
                         <button type="button" onClick={() => { setCustomerId(""); setVehicleId(""); }} className="text-[11px] text-[#3385FF] hover:underline shrink-0" data-testid="wizard-change-customer">Change</button>
                       </div>
+                    ) : quickAddOpen ? (
+                      // Inline quick-add form
+                      <div className="mt-1 border border-[#0066FF]/40 bg-[#0066FF]/5 rounded-sm p-3 space-y-2" data-testid="wizard-quickadd-form">
+                        <div className="text-[10px] uppercase tracking-widest text-[#3385FF] font-semibold mb-1">+ New Customer</div>
+                        <Input placeholder="Full name" value={qaName} onChange={e => setQaName(e.target.value)}
+                          className="bg-background border-border rounded-sm h-9" data-testid="wizard-qa-name" autoFocus />
+                        <Input placeholder="+96599887766" value={qaMobile}
+                          onKeyDown={(e) => {
+                            if (["Backspace","ArrowLeft","ArrowRight","Delete","Tab","Home","End"].includes(e.key)) return;
+                            if (e.metaKey || e.ctrlKey) return;
+                            if (e.key === "+" && qaMobile === "") return;
+                            if (!/^\d$/.test(e.key)) e.preventDefault();
+                          }}
+                          onChange={e => {
+                            const v = e.target.value;
+                            const cleaned = v.startsWith("+") ? "+" + v.slice(1).replace(/\D/g, "") : v.replace(/\D/g, "");
+                            setQaMobile(cleaned);
+                          }}
+                          className="bg-background border-border rounded-sm h-9 font-mono-data" data-testid="wizard-qa-mobile" />
+                        <div className="flex justify-end gap-2 pt-1">
+                          <Button type="button" variant="outline" size="sm" onClick={() => { setQuickAddOpen(false); setQaName(""); setQaMobile(""); }} className="border-border rounded-sm h-8" data-testid="wizard-qa-cancel">Cancel</Button>
+                          <Button type="button" size="sm" onClick={quickAddCustomer} disabled={qaSaving || !qaName.trim() || !qaMobile.trim()} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm h-8" data-testid="wizard-qa-save">{qaSaving ? "Saving…" : "Save Customer"}</Button>
+                        </div>
+                      </div>
                     ) : (
                       <>
                         <div className="relative mt-1">
@@ -346,9 +394,12 @@ export default function Quotations() {
                             )}
                           </div>
                         )}
-                        {customerSearch.trim().length === 0 && (
-                          <div className="mt-2 text-[11px] text-muted-foreground">Start typing to search by name or mobile.</div>
-                        )}
+                        <button type="button" onClick={() => { setQuickAddOpen(true); setQaName(customerSearch.replace(/[+0-9]/g, "").trim()); setQaMobile(customerSearch.match(/^\+?\d+$/) ? customerSearch : ""); }}
+                          className="mt-2 w-full text-left px-3 py-2 border border-dashed border-[#0066FF]/40 hover:border-[#0066FF] hover:bg-[#0066FF]/5 rounded-sm text-sm text-[#3385FF] flex items-center gap-2"
+                          data-testid="wizard-quickadd-btn">
+                          <Plus size={14} /> New Customer
+                          {customerSearch.trim() && <span className="text-[11px] text-muted-foreground ml-auto">— "{customerSearch.trim()}"</span>}
+                        </button>
                       </>
                     )}
                   </div>
