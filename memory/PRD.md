@@ -28,6 +28,13 @@ Lightweight web-based CRM for a small automotive service shop selling paint prot
 
 ## What's Been Implemented
 
+### Phase 4 QA & Cleanup (2026-05-05)
+- **Backend bug fix — `secret_key` masking**: extended `_mask_integration` (`server.py` L617-633) so any field whose lowercase name is in `SECRET_KEYS` (now includes `secret_key`), ends with `_secret`/`_token`, OR starts with `secret_` is masked. Verified end-to-end: PUT and subsequent GET both return masked values.
+- **Backend bug fix — `/seed` now re-runs `_phase4_migrate`**: after a `?reseed=true` wipes/recreates users, the migration now re-runs so the new admin gets `is_master=true`, `role_id` and the Administrator role exists. `_phase4_migrate` itself is now idempotent (upserts Administrator role rather than only creating when roles collection is empty).
+- **Accessibility — added `<DialogDescription className="sr-only">`** to Roles, Users, and VehicleManagement dialogs to silence the React `aria-describedby` warning. No visual change.
+- **Full backend regression: 114/114 PASS** across all 6 test files (iter2, iter3, phase1, phase2, phase3, phase4).
+- **Frontend QA verified**: login email+mobile labels, RBAC redirects for Sales/Technician on `/settings/*`, all sidebar testids resolve, mobile (375x812) zero horizontal overflow on 10 critical pages, 0 console errors, 0 dialog aria warnings.
+
 ### Phase 3 — Inventory & Services Restructuring + Payments Report (2026-05-05)
 - **Inventory Categories** (new): `inventory_categories` collection with name/description/active/created_at/created_by; CRUD + Excel export. Default "Uncategorized" auto-created on first run; protected from deletion. Categories with linked products cannot be deleted (must reassign or mark inactive).
 - **Inventory Products** (rewrite): added `category_id`, `sku`, `cost_price`, `selling_price`, `stock_qty`, `reorder_level`, `unit_of_measure`, `active` status; legacy `category` string preserved for back-compat. List endpoint supports `?q`, `?category_id`, `?status`. Excel export `/export/inventory` honours filters and names file by category.
