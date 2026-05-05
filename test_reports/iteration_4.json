@@ -1,0 +1,52 @@
+{
+  "summary": "Phase 2 Wetworks CRM testing complete. Backend: 14/15 new Phase-2 tests PASS plus 49/49 prior regression tests (1 prior regression in test_iter2_backend.py::test_invoice_edit_recalculates surfaced — see issues). Frontend: critical flows (quotations list filters, quotation detail branding/no-Emergent/no-mark-sent, full wizard customer→service→review with live discount math, Mark Approved auto-creates job + navigates to /jobs/<id>, jobs list filters & enrichment, job detail without timer, branded invoice with payments+balance, Wetworks footer/terms) all PASS. Idempotent approval verified at API-level: 2nd POST /quotations/{id}/status returns same job_id; convert endpoint also idempotent. Discount math verified: percent=10 → 10 KWD on subtotal=100, amount=5 → 5 KWD, none → 0. Wizard creates quotation, redirects to detail, then Mark Approved navigates to JC-00003 with linked QT-00008 visible.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/jobs/{id}/invoice", "issue": "Regression: legacy payload {discount: 1.0, tax_rate: 5} no longer applies the KWD-amount discount. The new _resolve_discount only honours {discount_type, discount_value} so legacy callers (Phase-1 frontend, mobile clients, scripts) get discount=0. Failing test: test_iter2_backend.py::test_invoice_edit_recalculates (asserts j['discount']==1.0; got 0.0). Fix: in _resolve_discount, when neither discount_type nor discount_value is sent but a raw 'discount' float is supplied, treat it as discount_type='amount', discount_value=raw.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/jobs", "issue": "Rows for jobs without a linked quotation (e.g. seed JC-00001) omit the 'quotation_number' key entirely instead of returning null. Spec wording 'Returns ... quotation_number on each row' is mildly ambiguous; recommend always include the key as null for client schema stability."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Layout mobile drawer", "issue": "Re-confirmed from iter3: at 390x844 [data-testid='mobile-nav-btn'] is visible & clickable but no Sheet/Dialog opens after click ([data-testid='mobile-sidebar'] absent and no role=dialog present). Mobile users cannot navigate via the hamburger.", "selector": "[data-testid='mobile-sidebar']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Wizard Review discount line", "issues": ["When discount_value=10 with default discount_type=amount the line correctly says 'Discount  - KWD 10.000'. Spec example for percent says it should read 'Discount (10%)'. The label already concatenates ' (10%)' when discount_type==='percent' (Quotations.jsx line 466). Defaulting discountType to 'amount' is fine, but consider exposing the dropdown above the input rather than below for discoverability."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2_quotations_jobs.py",
+    "/app/test_reports/pytest/phase2_results.xml",
+    "/app/backend/tests/test_iter2_backend.py",
+    "/app/backend/tests/test_iter3_segments_mobile.py",
+    "/app/backend/tests/test_phase1_segments_export.py"
+  ],
+  "action_items": [
+    "Backend: restore legacy support in _resolve_discount — if request omits discount_type/discount_value but provides raw 'discount' float, treat as type=amount,value=<raw>. Re-run test_iter2_backend.py::test_invoice_edit_recalculates.",
+    "Backend (minor): list_jobs should always include 'quotation_number' (null when no link) for consistent client schema.",
+    "Frontend: fix mobile-sidebar drawer at 390px — Sheet/Dialog not opening when mobile-nav-btn is clicked. Same issue carried over from iteration_3."
+  ],
+  "critical_code_review_comments": [
+    "server.py size remains ~1600+ lines — consider splitting (auth/customers/vehicles/quotations/jobs/segments/reports). Carried from iter3.",
+    "Idempotent approval logic now correctly returns the existing job_id — verified end-to-end. Also covered for /convert.",
+    "_calc_totals now correctly handles {discount_type:'percent', discount_value:10} → 10 KWD on subtotal=100 (verified). Recommend adding a server-side guard so percent values >100 cap discount at subtotal.",
+    "Frontend Quotations.jsx wizard testid coverage is excellent — every interactive review-line input, totals row and discount controls have data-testid. Phase-2 spec satisfied.",
+    "BrandedDocument is rendered on both QuotationDetail and JobDetail — confirmed contains WETWORKS wordmark, Salmiya/Kuwait address, Terms section, and contains NO 'Made with Emergent' text on either page (full HTML scan).",
+    "Job detail correctly removes timer (no timer-start/timer-stop testids in DOM) and Job Info card shows quotation link + creator with the spec'd testids.",
+    "WhatsApp share button is rendered as a <button> (not <a href>); href is null, sharing happens via waShareDocument() on click — works at runtime but Playwright assertion of href is N/A. No issue.",
+    "Recommend always returning 'quotation_number': null in /api/jobs list rows so the frontend doesn't have to defensive-check (in row?'quotation_number':row.quotation_number)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2_quotations_jobs.py (new — 15 tests, 14/15 pass)"
+  ],
+  "success_rate": {"backend": "98% (63/64 tests pass; only failing test is test_invoice_edit_recalculates legacy-discount regression)", "frontend": "95% on Phase 2 critical flows; 1 mobile drawer carry-over from iter3"},
+  "test_credentials": "admin@autocrm.kw/admin123, sales@autocrm.kw/sales123, tech@autocrm.kw/tech123 (per /app/memory/test_credentials.md)",
+  "seed_data_creation": "Wizard E2E created QT-00007 → JC-00002 (TEST_phase2_approval) and QT-00008 → JC-00003. Backend tests created 4 transient quotations under TEST_phase2_discount/approval prefixes. POST /api/seed is idempotent.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-2 backend regression suite at /app/backend/tests/test_phase2_quotations_jobs.py. Run all backend tests: `pytest /app/backend/tests/ -v`. The legacy {discount: float} bug in PATCH /api/jobs/{id}/invoice is the one critical regression — fix in _resolve_discount in server.py. Mobile drawer not opening at 390px is a carry-over from iter3 (the Sheet content is not visible after clicking mobile-nav-btn). All other Phase-2 features are working: list filters (q/status/creator/start/end) on both /api/quotations and /api/jobs, created_by_name enrichment, idempotent approval (verified end-to-end UI: Mark Approved → /jobs/JC-00003), branded PDF documents with no Emergent text, wizard discount line hidden when 0 / shown with type+value when set, redirect to detail after create.",
+  "rca of the issue": "PATCH /api/jobs/{id}/invoice regression: server _resolve_discount no longer accepts the legacy {discount: <float>} field. Reproduce: PATCH with body {discount: 1.0, tax_rate: 5} on any job → response.discount = 0.0 (expected 1.0). Mitigation: in _resolve_discount, if discount_type is None and discount_value is None but raw 'discount' is a positive number, treat as type='amount', value=raw."
+}

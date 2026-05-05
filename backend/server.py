@@ -189,7 +189,9 @@ class QuotationIn(BaseModel):
     customer_id: str
     vehicle_id: str
     lines: List[QuotationLineIn]
-    discount: float = 0
+    discount: float = 0  # resolved KWD amount (back-compat)
+    discount_type: Optional[Literal["amount", "percent"]] = None
+    discount_value: Optional[float] = None  # raw input (KWD if amount, % if percent)
     tax_rate: float = 0
     notes: Optional[str] = None
     valid_until: Optional[str] = None  # ISO date
@@ -208,6 +210,8 @@ class JobAssignIn(BaseModel):
 
 class JobInvoiceEditIn(BaseModel):
     discount: Optional[float] = None
+    discount_type: Optional[Literal["amount", "percent"]] = None
+    discount_value: Optional[float] = None
     tax_rate: Optional[float] = None
     notes: Optional[str] = None
 
@@ -510,12 +514,25 @@ async def delete_service(sid: str, user=Depends(require_roles("admin"))):
     return {"ok": True}
 
 # ---------------- Quotations ----------------
-def _calc_totals(lines, discount, tax_rate):
+def _resolve_discount(lines, discount_type, discount_value, fallback_amount):
+    """Return KWD discount amount given a type+value (or fallback to legacy KWD amount)."""
     sub = sum(l["line_total"] for l in lines)
-    after_disc = max(sub - discount, 0)
+    if discount_type == "percent" and discount_value is not None:
+        return round3(max(sub, 0) * max(discount_value, 0) / 100)
+    if discount_type == "amount" and discount_value is not None:
+        return round3(max(discount_value, 0))
+    return round3(max(fallback_amount or 0, 0))
+
+def _calc_totals(lines, discount, tax_rate, discount_type=None, discount_value=None):
+    sub = sum(l["line_total"] for l in lines)
+    disc_amt = _resolve_discount(lines, discount_type, discount_value, discount)
+    disc_amt = min(disc_amt, sub)
+    after_disc = max(sub - disc_amt, 0)
     tax_amount = round3(after_disc * (tax_rate / 100))
     total = round3(after_disc + tax_amount)
-    return {"subtotal": round3(sub), "discount": round3(discount),
+    return {"subtotal": round3(sub), "discount": disc_amt,
+            "discount_type": discount_type or ("percent" if (discount_value is not None and discount_type == "percent") else "amount"),
+            "discount_value": discount_value if discount_value is not None else disc_amt,
             "tax_rate": tax_rate, "tax_amount": tax_amount, "total": total}
 
 async def _next_seq(name: str) -> int:
@@ -537,16 +554,48 @@ def _is_expired(q: dict) -> bool:
     return datetime.now(timezone.utc) > exp
 
 @api.get("/quotations")
-async def list_quotations(user=Depends(get_current_user)):
-    rows = await db.quotations.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+async def list_quotations(
+    q: Optional[str] = None,
+    status_: Optional[str] = Query(None, alias="status"),
+    creator: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    flt: Dict[str, Any] = {}
+    if status_: flt["status"] = status_
+    if creator: flt["created_by"] = creator
+    if start or end:
+        rng: Dict[str, Any] = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end + "T23:59:59.999"
+        flt["created_at"] = rng
+    if q:
+        # Pre-resolve customer/vehicle ids matching q
+        ql_re = {"$regex": q, "$options": "i"}
+        cust_ids = [c["id"] for c in await db.customers.find(
+            {"$or": [{"name": ql_re}, {"mobile": ql_re}]}, {"id": 1, "_id": 0}).to_list(2000)]
+        veh_ids = [v["id"] for v in await db.vehicles.find(
+            {"plate": ql_re}, {"id": 1, "_id": 0}).to_list(2000)]
+        flt["$or"] = [
+            {"number": ql_re},
+            {"customer_id": {"$in": cust_ids}},
+            {"vehicle_id": {"$in": veh_ids}},
+        ]
+    rows = await db.quotations.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    # Enrich with creator name
+    user_ids = list({r.get("created_by") for r in rows if r.get("created_by")})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if user_ids else []
+    uname = {u["id"]: u["name"] for u in users}
     for r in rows:
         r["is_expired"] = _is_expired(r)
+        r["created_by_name"] = uname.get(r.get("created_by"), "")
     return rows
 
 @api.post("/quotations")
 async def create_quotation(body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
     lines = [l.model_dump() for l in body.lines]
-    totals = _calc_totals(lines, body.discount, body.tax_rate)
+    totals = _calc_totals(lines, body.discount, body.tax_rate, body.discount_type, body.discount_value)
     seq = await _next_seq("quotation")
     doc = {
         "id": new_id(), "number": f"QT-{seq:05d}",
@@ -558,6 +607,7 @@ async def create_quotation(body: QuotationIn, user=Depends(require_roles("admin"
     await db.quotations.insert_one(doc.copy())
     doc.pop("_id", None)
     doc["is_expired"] = _is_expired(doc)
+    doc["created_by_name"] = user.get("name", "")
     return doc
 
 @api.get("/quotations/{qid}")
@@ -567,12 +617,21 @@ async def get_quotation(qid: str, user=Depends(get_current_user)):
     q["customer"] = await db.customers.find_one({"id": q["customer_id"]}, {"_id": 0})
     q["vehicle"] = await db.vehicles.find_one({"id": q["vehicle_id"]}, {"_id": 0})
     q["is_expired"] = _is_expired(q)
+    if q.get("created_by"):
+        creator = await db.users.find_one({"id": q["created_by"]}, {"_id": 0, "password": 0})
+        q["creator"] = creator
+        q["created_by_name"] = creator.get("name", "") if creator else ""
+    # Linked job (if any)
+    linked_job = await db.jobs.find_one({"quotation_id": qid}, {"_id": 0, "id": 1, "number": 1})
+    if linked_job:
+        q["linked_job_id"] = linked_job["id"]
+        q["linked_job_number"] = linked_job["number"]
     return q
 
 @api.patch("/quotations/{qid}")
 async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
     lines = [l.model_dump() for l in body.lines]
-    totals = _calc_totals(lines, body.discount, body.tax_rate)
+    totals = _calc_totals(lines, body.discount, body.tax_rate, body.discount_type, body.discount_value)
     upd = {"customer_id": body.customer_id, "vehicle_id": body.vehicle_id,
            "lines": lines, **totals, "notes": body.notes, "valid_until": body.valid_until}
     audit(user, upd, creating=False)
@@ -581,10 +640,40 @@ async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_rol
 
 @api.post("/quotations/{qid}/status")
 async def quotation_status(qid: str, body: QuotationStatusIn, user=Depends(require_roles("admin", "sales"))):
+    q = await db.quotations.find_one({"id": qid}, {"_id": 0})
+    if not q: raise HTTPException(404)
     upd = {"status": body.status}
     audit(user, upd, creating=False)
     await db.quotations.update_one({"id": qid}, {"$set": upd})
-    return await db.quotations.find_one({"id": qid}, {"_id": 0})
+    job_id = None; job_number = None
+    if body.status == "approved":
+        # Auto-create job card if not already linked (idempotent)
+        existing = await db.jobs.find_one({"quotation_id": qid}, {"_id": 0, "id": 1, "number": 1})
+        if existing:
+            job_id, job_number = existing["id"], existing["number"]
+        else:
+            seq = await _next_seq("job")
+            job = {
+                "id": new_id(), "number": f"JC-{seq:05d}",
+                "quotation_id": qid, "quotation_number": q.get("number"),
+                "customer_id": q["customer_id"], "vehicle_id": q["vehicle_id"],
+                "lines": q["lines"], "subtotal": q["subtotal"], "discount": q["discount"],
+                "discount_type": q.get("discount_type"), "discount_value": q.get("discount_value"),
+                "tax_rate": q["tax_rate"], "tax_amount": q["tax_amount"], "total": q["total"],
+                "status": "confirmed", "technician_id": None,
+                "checklist": [], "before_photos": [], "after_photos": [],
+                "payments": [], "time_entries": [],
+                "invoice_number": None, "completed_at": None,
+                "notes": q.get("notes"),
+            }
+            audit(user, job)
+            await db.jobs.insert_one(job.copy())
+            job_id, job_number = job["id"], job["number"]
+    res = await db.quotations.find_one({"id": qid}, {"_id": 0})
+    if job_id:
+        res["job_id"] = job_id
+        res["job_number"] = job_number
+    return res
 
 @api.delete("/quotations/{qid}")
 async def delete_quotation(qid: str, user=Depends(require_roles("admin"))):
@@ -595,11 +684,17 @@ async def delete_quotation(qid: str, user=Depends(require_roles("admin"))):
 async def convert_to_job(qid: str, user=Depends(require_roles("admin", "sales"))):
     q = await db.quotations.find_one({"id": qid}, {"_id": 0})
     if not q: raise HTTPException(404)
+    existing = await db.jobs.find_one({"quotation_id": qid}, {"_id": 0})
+    if existing:
+        existing.pop("_id", None)
+        return _enrich_job(existing) if "_enrich_job" in globals() else existing
     seq = await _next_seq("job")
     job = {
         "id": new_id(), "number": f"JC-{seq:05d}",
-        "quotation_id": qid, "customer_id": q["customer_id"], "vehicle_id": q["vehicle_id"],
+        "quotation_id": qid, "quotation_number": q.get("number"),
+        "customer_id": q["customer_id"], "vehicle_id": q["vehicle_id"],
         "lines": q["lines"], "subtotal": q["subtotal"], "discount": q["discount"],
+        "discount_type": q.get("discount_type"), "discount_value": q.get("discount_value"),
         "tax_rate": q["tax_rate"], "tax_amount": q["tax_amount"], "total": q["total"],
         "status": "confirmed", "technician_id": None,
         "checklist": [], "before_photos": [], "after_photos": [],
@@ -642,16 +737,48 @@ def _enrich_job(job):
     return job
 
 @api.get("/jobs")
-async def list_jobs(status_: Optional[str] = Query(None, alias="status"),
-                    technician_id: Optional[str] = None,
-                    user=Depends(get_current_user)):
+async def list_jobs(
+    status_: Optional[str] = Query(None, alias="status"),
+    technician_id: Optional[str] = None,
+    q: Optional[str] = None,
+    creator: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     flt: Dict[str, Any] = {}
     if status_: flt["status"] = status_
     if technician_id: flt["technician_id"] = technician_id
     if user["role"] == "technician":
         flt["technician_id"] = user["id"]
+    if creator: flt["created_by"] = creator
+    if start or end:
+        rng: Dict[str, Any] = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end + "T23:59:59.999"
+        flt["created_at"] = rng
+    if q:
+        ql_re = {"$regex": q, "$options": "i"}
+        cust_ids = [c["id"] for c in await db.customers.find(
+            {"$or": [{"name": ql_re}, {"mobile": ql_re}]}, {"id": 1, "_id": 0}).to_list(2000)]
+        veh_ids = [v["id"] for v in await db.vehicles.find(
+            {"plate": ql_re}, {"id": 1, "_id": 0}).to_list(2000)]
+        flt["$or"] = [
+            {"number": ql_re},
+            {"invoice_number": ql_re},
+            {"quotation_number": ql_re},
+            {"customer_id": {"$in": cust_ids}},
+            {"vehicle_id": {"$in": veh_ids}},
+        ]
     rows = await db.jobs.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    return [_enrich_job(j) for j in rows]
+    user_ids = list({r.get("created_by") for r in rows if r.get("created_by")})
+    users = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500) if user_ids else []
+    uname = {u["id"]: u["name"] for u in users}
+    enriched = []
+    for r in rows:
+        r["created_by_name"] = uname.get(r.get("created_by"), "")
+        enriched.append(_enrich_job(r))
+    return enriched
 
 @api.get("/jobs/{jid}")
 async def get_job(jid: str, user=Depends(get_current_user)):
@@ -663,6 +790,13 @@ async def get_job(jid: str, user=Depends(get_current_user)):
     j["vehicle"] = await db.vehicles.find_one({"id": j["vehicle_id"]}, {"_id": 0})
     if j.get("technician_id"):
         j["technician"] = await db.users.find_one({"id": j["technician_id"]}, {"_id": 0, "password": 0})
+    if j.get("created_by"):
+        creator = await db.users.find_one({"id": j["created_by"]}, {"_id": 0, "password": 0})
+        j["creator"] = creator
+        j["created_by_name"] = creator.get("name", "") if creator else ""
+    if j.get("quotation_id") and not j.get("quotation_number"):
+        q = await db.quotations.find_one({"id": j["quotation_id"]}, {"_id": 0, "number": 1})
+        if q: j["quotation_number"] = q.get("number")
     return _enrich_job(j)
 
 @api.patch("/jobs/{jid}/invoice")
@@ -671,7 +805,9 @@ async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_ro
     if not job: raise HTTPException(404)
     discount = body.discount if body.discount is not None else job.get("discount", 0)
     tax_rate = body.tax_rate if body.tax_rate is not None else job.get("tax_rate", 0)
-    totals = _calc_totals(job.get("lines", []), discount, tax_rate)
+    dt = body.discount_type if body.discount_type is not None else job.get("discount_type")
+    dv = body.discount_value if body.discount_value is not None else job.get("discount_value")
+    totals = _calc_totals(job.get("lines", []), discount, tax_rate, dt, dv)
     upd = {**totals}
     if body.notes is not None:
         upd["notes"] = body.notes

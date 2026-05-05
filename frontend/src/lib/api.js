@@ -78,3 +78,18 @@ export const fmtSeconds = (s) => {
   const sec = s % 60;
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 };
+
+/**
+ * Open WhatsApp with a pre-filled message that links to a publicly accessible
+ * page (deployment URL of the quotation/invoice). The receiver opens the link
+ * to download/print the PDF themselves.
+ *
+ * Browsers block direct file attachments through wa.me, so the standard pattern
+ * is: include a link in the message body. If the customer opens it on a phone,
+ * WhatsApp handles the share dialog cleanly.
+ */
+export const waShareDocument = (mobile, label, url, extraMessage = "") => {
+  const msg = [extraMessage, `${label}: ${url}`].filter(Boolean).join("\n\n");
+  const digits = (mobile || "").replace(/[^0-9]/g, "");
+  return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+};

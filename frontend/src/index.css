@@ -110,6 +110,17 @@ h1, h2, h3, h4, h5, h6, .font-display {
   body { background: #fff !important; color: #000 !important; }
   .print-page { background: #fff !important; color: #000 !important; }
   .print-page * { color: #000 !important; border-color: #ccc !important; }
+  /* Hide app chrome — only print the print-area */
+  body > #root [data-testid="sidebar"],
+  body > #root [data-testid="mobile-sidebar"],
+  body > #root header,
+  body > #root [data-testid="page-header"] { display: none !important; }
+  /* Branded accent colours that must remain in print */
+  .print-accent { color: #0066ff !important; }
+  .print-accent-bg { background: #0066ff !important; color: #fff !important; }
+  .print-muted { color: #666 !important; }
+  .print-divider { border-color: #d4d4d8 !important; }
+  @page { size: A4; margin: 14mm 12mm; }
 }
 
 /* Sidebar link active */

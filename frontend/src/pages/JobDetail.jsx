@@ -1,19 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, fileUrl, fmtKWD, fmtDateTime, fmtSeconds, waLink } from "../lib/api";
+import { api, fileUrl, fmtKWD, fmtDateTime, waLink } from "../lib/api";
 import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
+import BrandedDocument from "../components/BrandedDocument";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Checkbox } from "../components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
-import { Plus, Upload, Trash2, Play, Square, Printer, CreditCard, Edit3, MessageCircle, Package, FileText, Lock } from "lucide-react";
+import { Plus, Upload, Trash2, Printer, CreditCard, Edit3, MessageCircle, Package, FileText, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 
 const NEXT_STATUS = { confirmed: "in_progress", in_progress: "completed" };
+const INVOICE_TERMS = [
+  "All work performed by Wetworks Automotive Care follows industry-standard procedures.",
+  "Payments are due upon job completion unless otherwise agreed.",
+  "Warranty on workmanship: 30 days. Warranty on materials follows manufacturer policy.",
+  "Wetworks is not liable for items left inside the vehicle.",
+];
 const DEFAULT_CHECKLIST = [
   "Vehicle inspected on arrival",
   "Surface cleaned & prepped",
@@ -37,7 +44,8 @@ export default function JobDetail() {
   const [payment, setPayment] = useState({ method: "cash", amount: "", auth_code: "", notes: "" });
 
   const [invoiceEditOpen, setInvoiceEditOpen] = useState(false);
-  const [invDiscount, setInvDiscount] = useState(0);
+  const [invDiscountType, setInvDiscountType] = useState("amount");
+  const [invDiscountValue, setInvDiscountValue] = useState(0);
   const [invTax, setInvTax] = useState(0);
   const [invNotes, setInvNotes] = useState("");
 
@@ -49,12 +57,11 @@ export default function JobDetail() {
   const [internalNotes, setInternalNotes] = useState("");
   const [internalSaving, setInternalSaving] = useState(false);
 
-  const [liveTick, setLiveTick] = useState(0);
-
   const load = async () => {
     const { data } = await api.get(`/jobs/${id}`);
     setJob(data);
-    setInvDiscount(data.discount || 0);
+    setInvDiscountType(data.discount_type || "amount");
+    setInvDiscountValue(data.discount_value ?? data.discount ?? 0);
     setInvTax(data.tax_rate || 0);
     setInvNotes(data.notes || "");
     setInternalNotes(data.internal_notes || "");
@@ -70,22 +77,6 @@ export default function JobDetail() {
     } catch {/* ignore */}
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
-
-  useEffect(() => {
-    if (!job?.timer_running) return;
-    const t = setInterval(() => setLiveTick(x => x + 1), 1000);
-    return () => clearInterval(t);
-  }, [job?.timer_running]);
-
-  const liveSeconds = (() => {
-    if (!job?.timer_running) return job?.total_seconds || 0;
-    const running = (job.time_entries || []).find(e => !e.end);
-    if (!running) return job.total_seconds || 0;
-    const started = new Date(running.start).getTime();
-    const running_s = Math.max(0, Math.floor((Date.now() - started) / 1000));
-    return (job.total_seconds || 0) + running_s;
-  })();
-  void liveTick;
 
   const setStatus = async (status) => {
     await api.post(`/jobs/${id}/status`, { status });
@@ -119,9 +110,6 @@ export default function JobDetail() {
     toast.success("Uploaded"); load();
   };
 
-  const timerStart = async () => { await api.post(`/jobs/${id}/timer/start`); load(); };
-  const timerStop  = async () => { await api.post(`/jobs/${id}/timer/stop`); load(); };
-
   const savePayment = async (e) => {
     e.preventDefault();
     const amt = Number(payment.amount);
@@ -150,8 +138,15 @@ export default function JobDetail() {
 
   const saveInvoiceEdit = async () => {
     try {
+      const dv = Number(invDiscountValue) || 0;
+      const subtotal = (job?.lines || []).reduce((s, l) => s + (l.line_total || 0), 0);
+      const discountAmt = invDiscountType === "percent" ? Math.round(subtotal * dv * 10) / 1000 : dv;
       await api.patch(`/jobs/${id}/invoice`, {
-        discount: Number(invDiscount), tax_rate: Number(invTax), notes: invNotes,
+        discount: discountAmt,
+        discount_type: invDiscountType,
+        discount_value: dv,
+        tax_rate: Number(invTax),
+        notes: invNotes,
       });
       toast.success("Invoice updated");
       setInvoiceEditOpen(false);
@@ -210,59 +205,54 @@ export default function JobDetail() {
 
   return (
     <div data-testid="job-detail-page">
-      <PageHeader title={job.invoice_number || job.number} subtitle={job.invoice_number ? "Invoice" : "Job Card"}
+      <PageHeader title={job.invoice_number || job.number} subtitle={job.invoice_number ? "Tax Invoice" : "Job Card"}
         actions={<>
           <Link to="/jobs" className="no-print"><Button variant="outline" className="border-border rounded-sm">← Back</Button></Link>
-          <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print"><Printer size={14} className="mr-1.5" /> Print Invoice</Button>
-          {job.customer?.mobile && <a href={waLink(job.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
+          <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print" data-testid="print-invoice"><Printer size={14} className="mr-1.5" /> Print {job.invoice_number ? "Invoice" : "Job Card"}</Button>
+          {job.customer?.mobile && (
+            <a href={waLink(job.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print">
+              <Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-invoice"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button>
+            </a>
+          )}
           {canEdit && NEXT_STATUS[job.status] && <Button onClick={advance} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm no-print" data-testid="advance-status-btn">Mark {NEXT_STATUS[job.status].replace("_", " ")} →</Button>}
           {canEdit && job.status !== "completed" && job.status !== "cancelled" && <Button onClick={() => setStatus("cancelled")} variant="outline" className="border-[#FF3B30] text-[#FF3B30] rounded-sm no-print">Cancel Job</Button>}
         </>}
       />
 
-      <div className="p-8 grid lg:grid-cols-3 gap-6">
+      <div className="p-4 sm:p-8 grid lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* PRINTABLE INVOICE CARD (customer-facing only) */}
-          <div className="border border-border bg-[#0F1115] rounded-sm p-6 print-page" id="print-area">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Customer · Vehicle</div>
-                <div className="font-display text-2xl font-bold mt-1">{job.customer?.name}</div>
-                <div className="text-sm text-muted-foreground mt-1">{job.vehicle?.make} {job.vehicle?.model} · {job.vehicle?.plate || "no plate"}</div>
+          {/* PRINTABLE BRANDED INVOICE */}
+          <div className="print-page">
+            <BrandedDocument
+              kind="invoice"
+              title={job.invoice_number || job.number}
+              subtitle={job.invoice_number ? "Tax Invoice" : "Job Card"}
+              meta={[
+                { label: "Job #", value: job.number },
+                ...(job.quotation_number ? [{ label: "Quotation #", value: job.quotation_number }] : []),
+                { label: "Date", value: fmtDateTime(job.completed_at || job.created_at) },
+                ...(job.created_by_name ? [{ label: "Created By", value: job.created_by_name }] : []),
+                ...(job.technician?.name ? [{ label: "Technician", value: job.technician.name }] : []),
+              ]}
+              status={
+                <div className="flex gap-2">
+                  <StatusBadge status={job.status} />
+                  <PaymentStatusBadge status={job.payment_status} />
+                </div>
+              }
+              customer={job.customer}
+              vehicle={job.vehicle}
+              lines={job.lines}
+              totals={job}
+              payments={job.payments}
+              notes={job.notes}
+              terms={INVOICE_TERMS}
+            />
+            {canRecordPayment && (
+              <div className="no-print mt-3 flex justify-end">
+                <Button size="sm" variant="outline" onClick={() => setInvoiceEditOpen(true)} className="border-border rounded-sm" data-testid="edit-invoice-btn"><Edit3 size={12} className="mr-1.5" /> Edit Invoice</Button>
               </div>
-              <div className="flex items-center gap-2">
-                <StatusBadge status={job.status} />
-                <PaymentStatusBadge status={job.payment_status} />
-              </div>
-            </div>
-            <table className="w-full text-sm border-t border-border mt-4">
-              <thead className="text-[10px] uppercase tracking-widest text-muted-foreground"><tr className="border-b border-border"><th className="text-left py-3">Service</th><th className="text-right py-3">Qty</th><th className="text-right py-3">Unit</th><th className="text-right py-3">Total</th></tr></thead>
-              <tbody>
-                {job.lines.map((l, i) => (
-                  <tr key={i} className="border-b border-border/60">
-                    <td className="py-2">{l.service_name}{l.selected_areas?.length > 0 && <span className="text-[11px] text-muted-foreground ml-2">({l.selected_areas.length} areas)</span>}</td>
-                    <td className="py-2 text-right font-mono-data">{l.quantity}</td>
-                    <td className="py-2 text-right font-mono-data">{fmtKWD(l.unit_price)}</td>
-                    <td className="py-2 text-right font-mono-data">{fmtKWD(l.line_total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="grid grid-cols-2 mt-4 gap-6">
-              <div>
-                {canRecordPayment && (
-                  <Button size="sm" variant="outline" onClick={() => setInvoiceEditOpen(true)} className="border-border rounded-sm no-print" data-testid="edit-invoice-btn"><Edit3 size={12} className="mr-1" /> Edit Invoice</Button>
-                )}
-              </div>
-              <div className="space-y-1 text-sm">
-                <Row label="Subtotal" value={fmtKWD(job.subtotal)} />
-                <Row label="Discount" value={`- ${fmtKWD(job.discount)}`} />
-                <Row label={`Tax (${job.tax_rate}%)`} value={fmtKWD(job.tax_amount)} />
-                <div className="border-t border-border pt-2 mt-2"><Row label="Total" value={fmtKWD(job.total)} bold /></div>
-                <Row label="Paid" value={fmtKWD(job.total_paid)} />
-                <Row label="Balance Due" value={fmtKWD(job.balance_due)} accent={job.balance_due > 0.001 ? "#FFCC00" : "#00FF66"} />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* MATERIALS / CONSUMPTION — INTERNAL */}
@@ -381,19 +371,25 @@ export default function JobDetail() {
         </div>
 
         <div className="space-y-4 no-print">
-          <div className="border border-border bg-[#0F1115] rounded-sm p-5">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Job Timer</div>
-            <div className="font-display text-3xl font-black font-mono-data">{fmtSeconds(liveSeconds)}</div>
-            {canEdit && job.status !== "completed" && job.status !== "cancelled" && (
-              <div className="mt-3 flex gap-2">
-                {!job.timer_running ? (
-                  <Button size="sm" onClick={timerStart} className="bg-emerald-600 hover:bg-emerald-500 rounded-sm" data-testid="timer-start"><Play size={12} className="mr-1" /> Start</Button>
-                ) : (
-                  <Button size="sm" onClick={timerStop} className="bg-[#FF3B30] hover:bg-red-500 rounded-sm" data-testid="timer-stop"><Square size={12} className="mr-1" /> Stop</Button>
+          {(job.quotation_number || job.created_by_name) && (
+            <div className="border border-border bg-[#0F1115] rounded-sm p-5">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-3">Job Info</div>
+              <dl className="text-sm space-y-2">
+                {job.quotation_number && (
+                  <div className="flex justify-between"><dt className="text-muted-foreground">Quotation</dt>
+                    <dd>
+                      {job.quotation_id
+                        ? <Link to={`/quotations/${job.quotation_id}`} className="text-[#3385FF] hover:underline font-mono-data" data-testid="job-linked-quotation">{job.quotation_number}</Link>
+                        : <span className="font-mono-data">{job.quotation_number}</span>}
+                    </dd>
+                  </div>
                 )}
-              </div>
-            )}
-          </div>
+                {job.created_by_name && <div className="flex justify-between"><dt className="text-muted-foreground">Created by</dt><dd className="font-semibold" data-testid="job-creator">{job.created_by_name}</dd></div>}
+                <div className="flex justify-between"><dt className="text-muted-foreground">Created at</dt><dd>{fmtDateTime(job.created_at)}</dd></div>
+                {job.completed_at && <div className="flex justify-between"><dt className="text-muted-foreground">Completed</dt><dd>{fmtDateTime(job.completed_at)}</dd></div>}
+              </dl>
+            </div>
+          )}
 
           <div className="border border-border bg-[#0F1115] rounded-sm p-5">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Assigned Technician</div>
@@ -466,7 +462,22 @@ export default function JobDetail() {
         <DialogContent className="bg-[#0F1115] border-border rounded-sm">
           <DialogHeader><DialogTitle className="font-display text-2xl font-black tracking-tighter">Edit Invoice</DialogTitle></DialogHeader>
           <div className="space-y-3 mt-2">
-            <div><Label className="text-[10px] uppercase tracking-wider">Discount (KWD)</Label><Input type="number" step="0.001" value={invDiscount} onChange={e => setInvDiscount(e.target.value)} className="mt-1 bg-background border-border rounded-sm" data-testid="inv-discount" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider">Discount Type</Label>
+                <Select value={invDiscountType} onValueChange={setInvDiscountType}>
+                  <SelectTrigger className="mt-1 bg-background border-border rounded-sm" data-testid="inv-discount-type"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-[#0F1115] border-border">
+                    <SelectItem value="amount">Fixed (KWD)</SelectItem>
+                    <SelectItem value="percent">Percentage (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider">Discount Value</Label>
+                <Input type="number" step="0.001" value={invDiscountValue} onChange={e => setInvDiscountValue(e.target.value)} className="mt-1 bg-background border-border rounded-sm" data-testid="inv-discount-value" />
+              </div>
+            </div>
             <div><Label className="text-[10px] uppercase tracking-wider">Tax Rate (%)</Label><Input type="number" step="0.01" value={invTax} onChange={e => setInvTax(e.target.value)} className="mt-1 bg-background border-border rounded-sm" /></div>
             <div><Label className="text-[10px] uppercase tracking-wider">Notes</Label><Input value={invNotes} onChange={e => setInvNotes(e.target.value)} className="mt-1 bg-background border-border rounded-sm" /></div>
             <DialogFooter className="pt-3">
@@ -537,13 +548,6 @@ const InternalSection = ({ title, sub, children }) => (
       <span className="tag-status" style={{ color: "#FFCC00", background: "rgba(255,204,0,0.08)", borderColor: "#FFCC00" }}>INTERNAL</span>
     </div>
     {children}
-  </div>
-);
-
-const Row = ({ label, value, bold, accent }) => (
-  <div className="flex items-center justify-between">
-    <div className="text-xs text-muted-foreground">{label}</div>
-    <div className={`font-mono-data ${bold ? "text-xl font-black" : "text-sm"}`} style={accent ? { color: accent } : {}}>{value}</div>
   </div>
 );
 
