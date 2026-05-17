@@ -518,33 +518,18 @@ async def get_permission_keys(user=Depends(get_current_user)):
 # ---------------- Vehicle Brands & Models (Phase 4 management) ----------------
 @api.get("/vehicle-brands")
 async def list_brands(q: Optional[str] = None, user=Depends(get_current_user)):
+    """
+    Frontend expects /vehicle-brands, but CRM_DEV database stores brands/models
+    in vehicle_makes collection as:
+      { id, label, models, active }
+    """
     flt: Dict[str, Any] = {}
+
     if q:
-        flt["name"] = {"$regex": q, "$options": "i"}
+        flt["label"] = {"$regex": q, "$options": "i"}
 
-    rows = await db.vehicle_brands.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
-
-    if rows:
-        bids = [r["id"] for r in rows]
-        counts = {}
-        if bids:
-            agg = db.vehicle_models.aggregate([
-                {"$match": {"brand_id": {"$in": bids}}},
-                {"$group": {"_id": "$brand_id", "n": {"$sum": 1}}},
-            ])
-            counts = {r["_id"]: r["n"] async for r in agg}
-        for r in rows:
-            r["model_count"] = counts.get(r["id"], 0)
-        return rows
-
-    # Fallback for existing CRM_DEV database structure:
-    # vehicle_makes stores both brand and models.
-    legacy_filter: Dict[str, Any] = {}
-    if q:
-        legacy_filter["label"] = {"$regex": q, "$options": "i"}
-
-    legacy_rows = await db.vehicle_makes.find(
-        legacy_filter,
+    rows = await db.vehicle_makes.find(
+        flt,
         {"_id": 0}
     ).sort("label", 1).to_list(2000)
 
@@ -555,111 +540,286 @@ async def list_brands(q: Optional[str] = None, user=Depends(get_current_user)):
             "active": r.get("active", True),
             "model_count": len(r.get("models") or [])
         }
-        for r in legacy_rows
+        for r in rows
     ]
+
 
 @api.post("/vehicle-brands")
 async def create_brand(body: VehicleBrandIn, user=Depends(require_roles("admin"))):
-    if await db.vehicle_brands.find_one({"name": body.name.strip()}):
+    name = body.name.strip()
+
+    if not name:
+        raise HTTPException(400, "Brand name is required")
+
+    existing = await db.vehicle_makes.find_one(
+        {"label": {"$regex": f"^{name}$", "$options": "i"}}
+    )
+
+    if existing:
         raise HTTPException(400, "Brand already exists")
-    doc = {"id": new_id(), "name": body.name.strip(), "active": body.active}
+
+    doc = {
+        "id": new_id(),
+        "label": name,
+        "models": [],
+        "active": body.active
+    }
+
     audit(user, doc)
-    await db.vehicle_brands.insert_one(doc.copy())
-    doc.pop("_id", None); return doc
+    await db.vehicle_makes.insert_one(doc.copy())
+
+    return {
+        "id": doc["id"],
+        "name": doc["label"],
+        "active": doc["active"],
+        "model_count": 0
+    }
+
 
 @api.patch("/vehicle-brands/{bid}")
 async def update_brand(bid: str, body: VehicleBrandIn, user=Depends(require_roles("admin"))):
-    upd = {"name": body.name.strip(), "active": body.active}
+    name = body.name.strip()
+
+    if not name:
+        raise HTTPException(400, "Brand name is required")
+
+    duplicate = await db.vehicle_makes.find_one({
+        "id": {"$ne": bid},
+        "label": {"$regex": f"^{name}$", "$options": "i"}
+    })
+
+    if duplicate:
+        raise HTTPException(400, "Brand already exists")
+
+    upd = {
+        "label": name,
+        "active": body.active
+    }
+
     audit(user, upd, creating=False)
-    await db.vehicle_brands.update_one({"id": bid}, {"$set": upd})
-    return await db.vehicle_brands.find_one({"id": bid}, {"_id": 0})
+
+    await db.vehicle_makes.update_one(
+        {"id": bid},
+        {"$set": upd}
+    )
+
+    row = await db.vehicle_makes.find_one({"id": bid}, {"_id": 0})
+
+    if not row:
+        raise HTTPException(404, "Brand not found")
+
+    return {
+        "id": row.get("id"),
+        "name": row.get("label") or "",
+        "active": row.get("active", True),
+        "model_count": len(row.get("models") or [])
+    }
+
 
 @api.delete("/vehicle-brands/{bid}")
 async def delete_brand(bid: str, user=Depends(require_roles("admin"))):
-    cnt = await db.vehicle_models.count_documents({"brand_id": bid})
-    if cnt:
-        raise HTTPException(400, f"Cannot delete: {cnt} model(s) under this brand. Delete models first or mark brand inactive.")
-    brand = await db.vehicle_brands.find_one({"id": bid}, {"_id": 0, "name": 1})
-    if brand:
-        v = await db.vehicles.count_documents({"make": brand["name"]})
-        if v:
-            raise HTTPException(400, f"Cannot delete: {v} vehicle(s) reference this brand.")
-    await db.vehicle_brands.delete_one({"id": bid})
+    brand = await db.vehicle_makes.find_one({"id": bid}, {"_id": 0})
+
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+
+    brand_name = brand.get("label") or brand.get("name")
+
+    if brand_name:
+        used_count = await db.vehicles.count_documents({"make": brand_name})
+
+        if used_count:
+            raise HTTPException(
+                400,
+                f"Cannot delete: {used_count} vehicle(s) reference this brand. Mark inactive instead."
+            )
+
+    await db.vehicle_makes.delete_one({"id": bid})
+
     return {"ok": True}
+
 
 @api.get("/vehicle-models")
 async def list_models(brand_id: Optional[str] = None, user=Depends(get_current_user)):
+    """
+    Frontend expects /vehicle-models, but CRM_DEV database stores models
+    as an array inside vehicle_makes.models.
+    """
     flt: Dict[str, Any] = {}
+
     if brand_id:
-        flt["brand_id"] = brand_id
+        flt["id"] = brand_id
 
-    rows = await db.vehicle_models.find(flt, {"_id": 0}).sort("name", 1).to_list(5000)
-
-    if rows:
-        return rows
-
-    # Fallback for existing CRM_DEV database structure:
-    # vehicle_makes stores models as an array under each brand.
-    legacy_filter: Dict[str, Any] = {}
-    if brand_id:
-        legacy_filter["id"] = brand_id
-
-    legacy_makes = await db.vehicle_makes.find(
-        legacy_filter,
+    makes = await db.vehicle_makes.find(
+        flt,
         {"_id": 0}
     ).sort("label", 1).to_list(2000)
 
-    legacy_models = []
-    for make in legacy_makes:
-        brand_id_value = make.get("id")
+    models = []
+
+    for make in makes:
+        make_id = make.get("id")
         brand_name = make.get("label") or make.get("name") or ""
 
         for model_name in make.get("models") or []:
-            legacy_models.append({
-                "id": f"{brand_id_value}-{model_name}",
-                "brand_id": brand_id_value,
+            models.append({
+                "id": f"{make_id}::{model_name}",
+                "brand_id": make_id,
                 "brand_name": brand_name,
                 "name": model_name,
                 "vehicle_type": None,
                 "active": True
             })
 
-    return legacy_models
+    return sorted(models, key=lambda x: x.get("name", "").lower())
+
 
 @api.post("/vehicle-models")
 async def create_model(body: VehicleModelIn, user=Depends(require_roles("admin"))):
-    brand = await db.vehicle_brands.find_one({"id": body.brand_id}, {"_id": 0, "name": 1})
+    model_name = body.name.strip()
+
+    if not model_name:
+        raise HTTPException(400, "Model name is required")
+
+    brand = await db.vehicle_makes.find_one(
+        {"id": body.brand_id},
+        {"_id": 0}
+    )
+
     if not brand:
         raise HTTPException(400, "Brand not found")
-    if await db.vehicle_models.find_one({"brand_id": body.brand_id, "name": body.name.strip()}):
+
+    existing_models = brand.get("models") or []
+
+    if any(m.lower() == model_name.lower() for m in existing_models):
         raise HTTPException(400, "Model already exists for this brand")
-    doc = {"id": new_id(), "brand_id": body.brand_id, "brand_name": brand["name"],
-           "name": body.name.strip(), "vehicle_type": body.vehicle_type,
-           "active": body.active}
-    audit(user, doc)
-    await db.vehicle_models.insert_one(doc.copy())
-    doc.pop("_id", None); return doc
+
+    await db.vehicle_makes.update_one(
+        {"id": body.brand_id},
+        {
+            "$addToSet": {"models": model_name},
+            "$set": {
+                "updated_by": user["id"],
+                "updated_at": now_iso()
+            }
+        }
+    )
+
+    brand_name = brand.get("label") or brand.get("name") or ""
+
+    return {
+        "id": f"{body.brand_id}::{model_name}",
+        "brand_id": body.brand_id,
+        "brand_name": brand_name,
+        "name": model_name,
+        "vehicle_type": body.vehicle_type,
+        "active": body.active
+    }
+
 
 @api.patch("/vehicle-models/{mid}")
 async def update_model(mid: str, body: VehicleModelIn, user=Depends(require_roles("admin"))):
-    brand = await db.vehicle_brands.find_one({"id": body.brand_id}, {"_id": 0, "name": 1})
+    """
+    mid format from this backend is: brand_id::model_name
+    """
+    model_name = body.name.strip()
+
+    if not model_name:
+        raise HTTPException(400, "Model name is required")
+
+    if "::" in mid:
+        old_brand_id, old_model_name = mid.split("::", 1)
+    else:
+        old_brand_id = body.brand_id
+        old_model_name = mid
+
+    brand = await db.vehicle_makes.find_one(
+        {"id": body.brand_id},
+        {"_id": 0}
+    )
+
     if not brand:
         raise HTTPException(400, "Brand not found")
-    upd = {"brand_id": body.brand_id, "brand_name": brand["name"],
-           "name": body.name.strip(), "vehicle_type": body.vehicle_type,
-           "active": body.active}
-    audit(user, upd, creating=False)
-    await db.vehicle_models.update_one({"id": mid}, {"$set": upd})
-    return await db.vehicle_models.find_one({"id": mid}, {"_id": 0})
+
+    # Remove old model from old brand
+    await db.vehicle_makes.update_one(
+        {"id": old_brand_id},
+        {
+            "$pull": {"models": old_model_name},
+            "$set": {
+                "updated_by": user["id"],
+                "updated_at": now_iso()
+            }
+        }
+    )
+
+    # Add updated model to selected brand
+    await db.vehicle_makes.update_one(
+        {"id": body.brand_id},
+        {
+            "$addToSet": {"models": model_name},
+            "$set": {
+                "updated_by": user["id"],
+                "updated_at": now_iso()
+            }
+        }
+    )
+
+    brand_name = brand.get("label") or brand.get("name") or ""
+
+    return {
+        "id": f"{body.brand_id}::{model_name}",
+        "brand_id": body.brand_id,
+        "brand_name": brand_name,
+        "name": model_name,
+        "vehicle_type": body.vehicle_type,
+        "active": body.active
+    }
+
 
 @api.delete("/vehicle-models/{mid}")
 async def delete_model(mid: str, user=Depends(require_roles("admin"))):
-    m = await db.vehicle_models.find_one({"id": mid}, {"_id": 0, "name": 1, "brand_name": 1})
-    if m:
-        v = await db.vehicles.count_documents({"make": m["brand_name"], "model": m["name"]})
-        if v:
-            raise HTTPException(400, f"Cannot delete: {v} vehicle(s) use this model. Mark inactive instead.")
-    await db.vehicle_models.delete_one({"id": mid})
+    """
+    mid format from this backend is: brand_id::model_name
+    """
+    if "::" not in mid:
+        raise HTTPException(400, "Invalid model id")
+
+    brand_id, model_name = mid.split("::", 1)
+
+    brand = await db.vehicle_makes.find_one(
+        {"id": brand_id},
+        {"_id": 0}
+    )
+
+    if not brand:
+        raise HTTPException(404, "Brand not found")
+
+    brand_name = brand.get("label") or brand.get("name")
+
+    if brand_name:
+        used_count = await db.vehicles.count_documents({
+            "make": brand_name,
+            "model": model_name
+        })
+
+        if used_count:
+            raise HTTPException(
+                400,
+                f"Cannot delete: {used_count} vehicle(s) use this model. Mark inactive instead."
+            )
+
+    await db.vehicle_makes.update_one(
+        {"id": brand_id},
+        {
+            "$pull": {"models": model_name},
+            "$set": {
+                "updated_by": user["id"],
+                "updated_at": now_iso()
+            }
+        }
+    )
+
     return {"ok": True}
 
 # ---------------- System Settings (Master Admin only) ----------------
