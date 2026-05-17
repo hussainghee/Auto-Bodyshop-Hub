@@ -130,7 +130,10 @@ export default function JobDetail() {
       setPayOpen(false);
       setPayment({ method: "cash", amount: "", auth_code: "", notes: "" });
       load();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
+    } catch (err) {
+  console.error("Payment save failed:", err);
+  toast.error(err?.response?.data?.detail || "Failed to record payment");
+}
   };
 
   const deletePayment = async (pid) => {
