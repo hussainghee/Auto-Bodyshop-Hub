@@ -26,11 +26,34 @@ import Roles from "./pages/Roles";
 import Users from "./pages/Users";
 import VehicleManagement from "./pages/VehicleManagement";
 
-const Protected = ({ children, roles }) => {
+const Protected = ({ children, roles, permission, masterOnly = false }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">Loading…</div>;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
+        Loading…
+      </div>
+    );
+  }
+
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+
+  const permissions = user?.permissions || {};
+  const isMasterAdmin = user?.is_master_admin || user?.isMasterAdmin || false;
+
+  if (isMasterAdmin) return children;
+
+  if (masterOnly) return <Navigate to="/" replace />;
+
+  if (permission && permissions[permission] !== true) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (roles && !roles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
   return children;
 };
 
@@ -59,11 +82,11 @@ function App() {
               <Route path="/inventory/categories" element={<Protected roles={["admin","sales"]}><InventoryCategories /></Protected>} />
               <Route path="/services" element={<Protected roles={["admin"]}><Services /></Protected>} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<Protected roles={["admin"]}><SystemSettings /></Protected>} />
-              <Route path="/settings/legacy" element={<Protected roles={["admin"]}><Settings /></Protected>} />
-              <Route path="/settings/roles" element={<Protected roles={["admin"]}><Roles /></Protected>} />
-              <Route path="/settings/users" element={<Protected roles={["admin"]}><Users /></Protected>} />
-              <Route path="/settings/vehicle-management" element={<Protected roles={["admin"]}><VehicleManagement /></Protected>} />
+              <Route path="/settings" element={<Protected masterOnly><SystemSettings /></Protected>} />
+              <Route path="/settings/legacy" element={<Protected masterOnly><Settings /></Protected>} />
+              <Route path="/settings/roles" element={<Protected permission="settings_roles"><Roles /></Protected>} />
+              <Route path="/settings/users" element={<Protected permission="settings_users"><Users /></Protected>} />
+              <Route path="/settings/vehicle-management" element={<Protected permission="settings_vehicle_management"><VehicleManagement /></Protected>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
