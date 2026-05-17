@@ -273,7 +273,7 @@ class JobInvoiceEditIn(BaseModel):
     notes: Optional[str] = None
 
 class PaymentIn(BaseModel):
-    method: Literal["cash", "knet", "credit_card"]
+    method: Literal["cash", "knet", "credit_card", "bank_transfer", "other"]
     amount: float
     auth_code: Optional[str] = None
     notes: Optional[str] = None
