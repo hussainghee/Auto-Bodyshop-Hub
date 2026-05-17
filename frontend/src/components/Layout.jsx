@@ -68,15 +68,31 @@ export default function Layout() {
   // Close mobile drawer on route change
   useEffect(() => { setMobileNavOpen(false); }, [loc.pathname]);
 
-  const items = NAV.filter(n => n.roles.includes(user?.role));
-  const perms = user?.permissions || {};
-  const canSee = (item) => !item.perm || perms[item.perm] !== false;
-  // Filter children too
-  const visibleItems = items.map(it => {
-    if (!it.children) return canSee(it) ? it : null;
-    const kids = it.children.filter(canSee);
-    return kids.length ? { ...it, children: kids } : null;
-  }).filter(Boolean);
+const perms = user?.permissions || {};
+const isMasterAdmin = user?.is_master_admin || user?.isMasterAdmin || false;
+
+const hasPermission = (perm) => {
+  if (!perm) return true;
+  if (isMasterAdmin) return true;
+  return perms[perm] === true;
+};
+
+const visibleItems = NAV.map((it) => {
+  if (!it.children) {
+    return hasPermission(it.perm) ? it : null;
+  }
+
+  const kids = it.children.filter((child) => {
+    // System Settings should only be visible for Master Admin
+    if (child.perm === "system_settings") {
+      return isMasterAdmin;
+    }
+
+    return hasPermission(child.perm);
+  });
+
+  return kids.length ? { ...it, children: kids } : null;
+}).filter(Boolean);
 
   const NavList = ({ onNavigate }) => (
     <nav className="py-3 flex-1 overflow-y-auto">
