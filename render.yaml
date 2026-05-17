@@ -3,7 +3,7 @@ services:
     name: wetworks-crm-uat
     env: static
     branch: Dev
-    buildCommand: cd frontend && yarn install --frozen-lockfile && yarn build
+    buildCommand: cd frontend && npm install --legacy-peer-deps && npm run build
     staticPublishPath: frontend/build
     routes:
       - type: rewrite
