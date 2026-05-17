@@ -521,18 +521,42 @@ async def list_brands(q: Optional[str] = None, user=Depends(get_current_user)):
     flt: Dict[str, Any] = {}
     if q:
         flt["name"] = {"$regex": q, "$options": "i"}
+
     rows = await db.vehicle_brands.find(flt, {"_id": 0}).sort("name", 1).to_list(2000)
-    bids = [r["id"] for r in rows]
-    counts = {}
-    if bids:
-        agg = db.vehicle_models.aggregate([
-            {"$match": {"brand_id": {"$in": bids}}},
-            {"$group": {"_id": "$brand_id", "n": {"$sum": 1}}},
-        ])
-        counts = {r["_id"]: r["n"] async for r in agg}
-    for r in rows:
-        r["model_count"] = counts.get(r["id"], 0)
-    return rows
+
+    if rows:
+        bids = [r["id"] for r in rows]
+        counts = {}
+        if bids:
+            agg = db.vehicle_models.aggregate([
+                {"$match": {"brand_id": {"$in": bids}}},
+                {"$group": {"_id": "$brand_id", "n": {"$sum": 1}}},
+            ])
+            counts = {r["_id"]: r["n"] async for r in agg}
+        for r in rows:
+            r["model_count"] = counts.get(r["id"], 0)
+        return rows
+
+    # Fallback for existing CRM_DEV database structure:
+    # vehicle_makes stores both brand and models.
+    legacy_filter: Dict[str, Any] = {}
+    if q:
+        legacy_filter["label"] = {"$regex": q, "$options": "i"}
+
+    legacy_rows = await db.vehicle_makes.find(
+        legacy_filter,
+        {"_id": 0}
+    ).sort("label", 1).to_list(2000)
+
+    return [
+        {
+            "id": r.get("id"),
+            "name": r.get("label") or r.get("name") or "",
+            "active": r.get("active", True),
+            "model_count": len(r.get("models") or [])
+        }
+        for r in legacy_rows
+    ]
 
 @api.post("/vehicle-brands")
 async def create_brand(body: VehicleBrandIn, user=Depends(require_roles("admin"))):
@@ -568,8 +592,39 @@ async def list_models(brand_id: Optional[str] = None, user=Depends(get_current_u
     flt: Dict[str, Any] = {}
     if brand_id:
         flt["brand_id"] = brand_id
+
     rows = await db.vehicle_models.find(flt, {"_id": 0}).sort("name", 1).to_list(5000)
-    return rows
+
+    if rows:
+        return rows
+
+    # Fallback for existing CRM_DEV database structure:
+    # vehicle_makes stores models as an array under each brand.
+    legacy_filter: Dict[str, Any] = {}
+    if brand_id:
+        legacy_filter["id"] = brand_id
+
+    legacy_makes = await db.vehicle_makes.find(
+        legacy_filter,
+        {"_id": 0}
+    ).sort("label", 1).to_list(2000)
+
+    legacy_models = []
+    for make in legacy_makes:
+        brand_id_value = make.get("id")
+        brand_name = make.get("label") or make.get("name") or ""
+
+        for model_name in make.get("models") or []:
+            legacy_models.append({
+                "id": f"{brand_id_value}-{model_name}",
+                "brand_id": brand_id_value,
+                "brand_name": brand_name,
+                "name": model_name,
+                "vehicle_type": None,
+                "active": True
+            })
+
+    return legacy_models
 
 @api.post("/vehicle-models")
 async def create_model(body: VehicleModelIn, user=Depends(require_roles("admin"))):
