@@ -9,22 +9,47 @@ import NotificationsPanel from "./NotificationsPanel";
 import CommandPalette from "./CommandPalette";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","sales","technician"] },
-  { to: "/customers", label: "Customers", icon: Users, roles: ["admin","sales"] },
-  { to: "/vehicles", label: "Vehicles", icon: Car, roles: ["admin","sales"] },
-  { to: "/quotations", label: "Quotations", icon: FileText, roles: ["admin","sales"] },
-  { to: "/jobs", label: "Job Cards", icon: Wrench, roles: ["admin","sales","technician"] },
-  { to: "/inventory", label: "Inventory", icon: Package, roles: ["admin","sales"] },
-  { to: "/services", label: "Services & Pricing", icon: SlidersHorizontal, roles: ["admin"] },
-  { to: "/calendar", label: "Calendar", icon: CalendarDays, roles: ["admin","sales","technician"] },
-  { to: "/reports", label: "Reports", icon: BarChart3, roles: ["admin","sales"] },
-  { to: "/settings", label: "Settings", icon: SetIcon, roles: ["admin"] },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard" },
+  { to: "/customers", label: "Customers", icon: Users, perm: "customers" },
+  { to: "/vehicles", label: "Vehicles", icon: Car, perm: "vehicles" },
+  { to: "/quotations", label: "Quotations", icon: FileText, perm: "quotations" },
+  { to: "/jobs", label: "Job Cards", icon: Wrench, perm: "jobs" },
+  { to: "/inventory", label: "Inventory", icon: Package, perm: "inventory_products" },
+  { to: "/services", label: "Services & Pricing", icon: SlidersHorizontal, perm: "services" },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays, perm: "calendar" },
+  { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports" },
+  { to: "/settings", label: "Settings", icon: SetIcon, perm: "settings" },
 ];
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const items = NAV.filter(n => n.roles.includes(user?.role));
+  const perms = user?.permissions || {};
+const isMasterAdmin = user?.is_master_admin || user?.isMasterAdmin || false;
+
+const hasPermission = (perm) => {
+  if (!perm) return true;
+  if (isMasterAdmin) return true;
+
+  // Temporary fallback for old admin/sales/technician users
+  if (!user?.permissions && user?.role === "admin") return true;
+
+  return perms[perm] === true;
+};
+
+const hasAnySettingsPermission =
+  hasPermission("settings_roles") ||
+  hasPermission("settings_users") ||
+  hasPermission("settings_vehicle_management") ||
+  isMasterAdmin;
+
+const items = NAV.filter((n) => {
+  if (n.to === "/settings") {
+    return hasAnySettingsPermission;
+  }
+
+  return hasPermission(n.perm);
+});
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
