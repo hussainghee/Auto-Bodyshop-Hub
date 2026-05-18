@@ -35,7 +35,7 @@ export default function Users() {
     try {
       const payload = { ...form };
       if (editId && !payload.password) delete payload.password;
-      if (editId) await api.patch(`/users/${editId}`, payload);
+      if (editId) await api.put(`/users/${editId}`, payload);
       else await api.post("/users", payload);
       toast.success("User saved");
       setOpen(false); setForm(empty); setEditId(null); load();
