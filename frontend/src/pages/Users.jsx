@@ -82,16 +82,6 @@ const save = async (e) => {
     toast.error(err?.message || "Failed to save user");
   }
 };
-    toast.success("User saved");
-    setOpen(false);
-    setForm(empty);
-    setEditId(null);
-    await load();
-  } catch (err) {
-    console.error("USER SAVE FAILED", err);
-    toast.error(err?.message || "Failed to save user");
-  }
-};
   const startEdit = (u) => {
     setForm({
       first_name: u.first_name || "", last_name: u.last_name || "",
