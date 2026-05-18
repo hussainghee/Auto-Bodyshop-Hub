@@ -42,12 +42,31 @@ const save = async (e) => {
   console.log("USER SAVE CLICKED", { editId, payload });
 
   try {
-    if (editId) {
-      const res = await api.patch(`/users/${editId}`, payload);
-      console.log("USER UPDATE RESPONSE", res.data);
-    } else {
-      const res = await api.post("/users", payload);
-      console.log("USER CREATE RESPONSE", res.data);
+    const token = localStorage.getItem("auth_token");
+    const baseUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
+
+    const url = editId
+      ? `${baseUrl}/api/users/${editId}`
+      : `${baseUrl}/api/users`;
+
+    const method = editId ? "PATCH" : "POST";
+
+    console.log("USER SAVE REQUEST", { method, url, payload });
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await response.text();
+    console.log("USER SAVE RAW RESPONSE", response.status, text);
+
+    if (!response.ok) {
+      throw new Error(text || "Failed to save user");
     }
 
     toast.success("User saved");
@@ -57,7 +76,7 @@ const save = async (e) => {
     await load();
   } catch (err) {
     console.error("USER SAVE FAILED", err);
-    toast.error(err?.response?.data?.detail || err?.message || "Failed to save user");
+    toast.error(err?.message || "Failed to save user");
   }
 };
 
