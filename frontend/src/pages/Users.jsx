@@ -30,58 +30,51 @@ export default function Users() {
   };
   useEffect(() => { load(); }, []);
 
-const save = async (e) => {
-  e.preventDefault();
+  const save = async (e) => {
+    e.preventDefault();
 
-  const payload = { ...form };
+    const payload = { ...form };
 
-  if (editId && (!payload.password || payload.password.trim() === "")) {
-    delete payload.password;
-  }
-
-  try {
-    const token = localStorage.getItem("auth_token");
-    const baseUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
-
-    const url = editId
-      ? `${baseUrl}/api/users/${editId}`
-      : `${baseUrl}/api/users`;
-
-    const method = editId ? "PATCH" : "POST";
-
-    const response = await fetch(url, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data?.detail || "Failed to save user");
+    if (editId && (!payload.password || payload.password.trim() === "")) {
+      delete payload.password;
     }
 
-    toast.success("User saved");
+    try {
+      const token = localStorage.getItem("auth_token");
+      const baseUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
 
-    if (editId) {
-      setList((prev) =>
-        prev.map((u) => (u.id === editId ? data : u))
-      );
-    } else {
-      setList((prev) => [data, ...prev]);
+      const url = editId
+        ? `${baseUrl}/api/users/${editId}`
+        : `${baseUrl}/api/users`;
+
+      const method = editId ? "PATCH" : "POST";
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        throw new Error(text || "Failed to save user");
+      }
+
+      toast.success("User saved");
+      setOpen(false);
+      setForm(empty);
+      setEditId(null);
+      await load();
+    } catch (err) {
+      console.error("USER SAVE FAILED", err);
+      toast.error(err?.message || "Failed to save user");
     }
+  };
 
-    setOpen(false);
-    setForm(empty);
-    setEditId(null);
-  } catch (err) {
-    console.error("USER SAVE FAILED", err);
-    toast.error(err?.message || "Failed to save user");
-  }
-};
   const startEdit = (u) => {
     setForm({
       first_name: u.first_name || "", last_name: u.last_name || "",
