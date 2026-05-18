@@ -39,6 +39,8 @@ const save = async (e) => {
     delete payload.password;
   }
 
+  console.log("USER SAVE CLICKED", { editId, payload });
+
   try {
     const token = localStorage.getItem("auth_token");
     const baseUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
@@ -48,6 +50,8 @@ const save = async (e) => {
       : `${baseUrl}/api/users`;
 
     const method = editId ? "PATCH" : "POST";
+
+    console.log("USER SAVE REQUEST", { method, url, payload });
 
     const response = await fetch(url, {
       method,
@@ -59,6 +63,7 @@ const save = async (e) => {
     });
 
     const text = await response.text();
+    console.log("USER SAVE RAW RESPONSE", response.status, text);
 
     if (!response.ok) {
       throw new Error(text || "Failed to save user");
@@ -74,7 +79,6 @@ const save = async (e) => {
     toast.error(err?.message || "Failed to save user");
   }
 };
-
   const startEdit = (u) => {
     setForm({
       first_name: u.first_name || "", last_name: u.last_name || "",
