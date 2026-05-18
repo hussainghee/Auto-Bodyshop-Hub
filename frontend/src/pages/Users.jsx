@@ -30,17 +30,36 @@ export default function Users() {
   };
   useEffect(() => { load(); }, []);
 
-  const save = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = { ...form };
-      if (editId && !payload.password) delete payload.password;
-      if (editId) await api.patch(`/users/${editId}`, payload);
-      else await api.post("/users", payload);
-      toast.success("User saved");
-      setOpen(false); setForm(empty); setEditId(null); load();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
-  };
+const save = async (e) => {
+  e.preventDefault();
+
+  const payload = { ...form };
+
+  if (editId && (!payload.password || payload.password.trim() === "")) {
+    delete payload.password;
+  }
+
+  console.log("USER SAVE CLICKED", { editId, payload });
+
+  try {
+    if (editId) {
+      const res = await api.patch(`/users/${editId}`, payload);
+      console.log("USER UPDATE RESPONSE", res.data);
+    } else {
+      const res = await api.post("/users", payload);
+      console.log("USER CREATE RESPONSE", res.data);
+    }
+
+    toast.success("User saved");
+    setOpen(false);
+    setForm(empty);
+    setEditId(null);
+    await load();
+  } catch (err) {
+    console.error("USER SAVE FAILED", err);
+    toast.error(err?.response?.data?.detail || err?.message || "Failed to save user");
+  }
+};
 
   const startEdit = (u) => {
     setForm({
