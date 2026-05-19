@@ -69,7 +69,10 @@ export default function Layout() {
   useEffect(() => { setMobileNavOpen(false); }, [loc.pathname]);
 
 const perms = user?.permissions || {};
-const isMasterAdmin = user?.is_master_admin || user?.isMasterAdmin || false;
+const isMasterAdmin =
+  user?.is_master === true ||
+  user?.is_master_admin === true ||
+  user?.isMasterAdmin === true;
 
 const hasPermission = (perm) => {
   if (!perm) return true;
