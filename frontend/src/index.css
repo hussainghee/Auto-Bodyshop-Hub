@@ -105,24 +105,95 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 /* Print styles */
+/* Print styles */
 @media print {
-  .no-print { display: none !important; }
-  body { background: #fff !important; color: #000 !important; }
-  .print-page { background: #fff !important; color: #000 !important; }
-  .print-page * { color: #000 !important; border-color: #ccc !important; }
-  /* Hide app chrome — only print the print-area */
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    width: 210mm;
+    min-height: 297mm;
+    background: #ffffff !important;
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #print-area,
+  #print-area * {
+    visibility: visible !important;
+  }
+
+  #print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 190mm !important;
+    max-width: 190mm !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
   body > #root [data-testid="sidebar"],
   body > #root [data-testid="mobile-sidebar"],
   body > #root header,
-  body > #root [data-testid="page-header"] { display: none !important; }
-  /* Branded accent colours that must remain in print */
-  .print-accent { color: #0066ff !important; }
-  .print-accent-bg { background: #0066ff !important; color: #fff !important; }
-  .print-muted { color: #666 !important; }
-  .print-divider { border-color: #d4d4d8 !important; }
-  @page { size: A4; margin: 14mm 12mm; }
-}
+  body > #root [data-testid="page-header"] {
+    display: none !important;
+  }
 
+  .print-page {
+    background: #ffffff !important;
+    color: #111827 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-page * {
+    color: inherit !important;
+    border-color: #e5e7eb !important;
+  }
+
+  .print-accent {
+    color: #0f766e !important;
+  }
+
+  .print-accent-bg {
+    background: #0f766e !important;
+    color: #ffffff !important;
+  }
+
+  .print-muted {
+    color: #6b7280 !important;
+  }
+
+  .print-divider {
+    border-color: #e5e7eb !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+}
 /* Sidebar link active */
 .nav-link {
   display: flex; align-items: center; gap: 12px;
