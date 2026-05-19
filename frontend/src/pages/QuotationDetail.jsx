@@ -176,8 +176,8 @@ export default function QuotationDetail() {
         </>}
       />
 
-      <div className="p-4 sm:p-8 print-page">
-        <BrandedDocument
+      <div className="document-print-wrapper p-4 sm:p-8 print-page">
+  <BrandedDocument
           kind="quotation"
           title={q.number}
           subtitle="Quotation"
