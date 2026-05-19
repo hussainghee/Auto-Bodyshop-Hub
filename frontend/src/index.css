@@ -119,7 +119,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
-    color: #111827 !important;
+    color: #111111 !important;
     overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -170,7 +170,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
     box-shadow: none !important;
     overflow: visible !important;
     background: #ffffff !important;
-    color: #111827 !important;
+    color: #111111 !important;
   }
 
   .quotation-print-sheet *,
@@ -202,17 +202,95 @@ h1, h2, h3, h4, h5, h6, .font-display {
   }
 
   .print-page * {
-    color: inherit !important;
-    border-color: #e5e7eb !important;
+    color: inherit;
   }
 
-  .print-accent {
-    color: #0f766e !important;
+  .print-brand-bar {
+    background: #f4f1fa !important;
+    border: 1px solid #d8d0ea !important;
+    border-top: 8px solid #8771b2 !important;
+    padding: 18px !important;
+    border-radius: 4px !important;
   }
 
-  .print-accent-bg {
-    background: #0f766e !important;
+  .print-logo {
+    width: 72px !important;
+    height: 72px !important;
+    object-fit: cover !important;
+    border: 1px solid #d8d0ea !important;
+    border-radius: 4px !important;
+  }
+
+  .print-company-name {
+    font-family: 'Outfit', 'IBM Plex Sans', Arial, sans-serif !important;
+    font-size: 30px !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.14em !important;
+    color: #000000 !important;
+    line-height: 1 !important;
+  }
+
+  .print-company-subtitle {
+    font-family: 'Outfit', 'IBM Plex Sans', Arial, sans-serif !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.42em !important;
+    color: #000000 !important;
+    margin-top: 7px !important;
+  }
+
+  .print-document-label {
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.3em !important;
+    color: #6b7280 !important;
+    font-weight: 700 !important;
+  }
+
+  .print-document-number {
+    font-family: 'Outfit', 'IBM Plex Sans', Arial, sans-serif !important;
+    font-size: 34px !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.03em !important;
+    color: #111111 !important;
+    margin-top: 4px !important;
+  }
+
+  .print-table-head {
+    background: #8771b2 !important;
     color: #ffffff !important;
+  }
+
+  .print-table-head th {
+    color: #ffffff !important;
+  }
+
+  .print-total-row {
+    background: #8771b2 !important;
+    color: #ffffff !important;
+    padding: 12px 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .print-total-row * {
+    color: #ffffff !important;
+  }
+
+  .print-section-title {
+    color: #111111 !important;
+    font-size: 10px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.25em !important;
+    font-weight: 800 !important;
+  }
+
+  .print-info-card {
+    border-left: 4px solid #8771b2 !important;
+    background: #fbfaff !important;
+    padding: 12px 14px !important;
+    border-radius: 4px !important;
   }
 
   .print-muted {
@@ -220,7 +298,16 @@ h1, h2, h3, h4, h5, h6, .font-display {
   }
 
   .print-divider {
-    border-color: #e5e7eb !important;
+    border-color: #d8d0ea !important;
+  }
+
+  .print-accent {
+    color: #8771b2 !important;
+  }
+
+  .print-accent-bg {
+    background: #8771b2 !important;
+    color: #ffffff !important;
   }
 }
 
