@@ -40,7 +40,10 @@ const Protected = ({ children, roles, permission, masterOnly = false }) => {
   if (!user) return <Navigate to="/login" replace />;
 
   const permissions = user?.permissions || {};
-  const isMasterAdmin = user?.is_master_admin || user?.isMasterAdmin || false;
+ const isMasterAdmin =
+  user?.is_master === true ||
+  user?.is_master_admin === true ||
+  user?.isMasterAdmin === true;
 
   if (isMasterAdmin) return children;
 
