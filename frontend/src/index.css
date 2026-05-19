@@ -109,7 +109,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 @media print {
   @page {
     size: A4;
-    margin: 10mm;
+    margin: 6mm;
   }
 
   html,
@@ -131,19 +131,17 @@ h1, h2, h3, h4, h5, h6, .font-display {
     visibility: visible !important;
   }
 
-  #print-area {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 190mm !important;
-    max-width: 190mm !important;
-    margin: 0 auto !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    background: #ffffff !important;
-    color: #111827 !important;
-  }
+#print-area {
+  position: static !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+}
 
   .no-print {
     display: none !important;
