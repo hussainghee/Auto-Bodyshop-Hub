@@ -35,7 +35,7 @@ export default function BrandedDocument({
       style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
     >
       {/* Brand header */}
-      <div className="flex items-start justify-between gap-6 pb-6 border-b-2 border-[#0066FF] print-divider">
+      <div className="flex items-start justify-between gap-6 pb-6 border-b-2 border-[#0f766e] print-divider">
         <div className="flex items-center gap-4 min-w-0">
           <img src={LOGO} alt="Wetworks" className="w-16 h-16 rounded object-cover border border-zinc-200" />
           <div className="min-w-0">
@@ -87,7 +87,7 @@ export default function BrandedDocument({
       {/* Lines table */}
       <div className="border border-zinc-200 print-divider rounded-sm overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-[#0066FF] text-white print-accent-bg">
+          <thead className="bg-[#0f766e] text-white print-accent-bg">
             <tr>
               <th className="text-left px-4 py-2.5 font-semibold uppercase tracking-wider text-[11px]">Service</th>
               <th className="text-right px-4 py-2.5 font-semibold uppercase tracking-wider text-[11px] w-20">Qty</th>
@@ -128,7 +128,7 @@ export default function BrandedDocument({
             />
           )}
           {showTax && <SummaryRow label={`Tax (${totals.tax_rate}%)`} value={fmtKWD(totals.tax_amount)} />}
-          <div className="bg-[#0066FF] text-white print-accent-bg px-4 py-3 flex items-center justify-between">
+          <div className="bg-[#0f766e] text-white print-accent-bg px-4 py-3 flex items-center justify-between">
             <div className="text-[11px] uppercase tracking-wider font-bold">{isInvoice ? "Total Due" : "Grand Total"}</div>
             <div className="font-mono text-2xl font-black">{fmtKWD(totals.total)}</div>
           </div>
@@ -195,7 +195,14 @@ export default function BrandedDocument({
           <div>www.wetworks.kw · hello@wetworks.kw</div>
         </div>
         <div className="text-right">
-          {footer || <div className="font-semibold text-[#0a0b0e]">Thank you for choosing Wetworks.</div>}
+          {footer || (
+  <div>
+    <div className="font-semibold text-[#0a0b0e]">Thank you for choosing Wetworks.</div>
+    <div className="text-[10px] text-zinc-500 mt-1">
+      This quotation is system generated and valid subject to inspection and final approval.
+    </div>
+  </div>
+)}
         </div>
       </div>
     </div>
