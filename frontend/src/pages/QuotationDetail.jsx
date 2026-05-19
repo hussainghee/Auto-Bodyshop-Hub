@@ -147,19 +147,21 @@ export default function QuotationDetail() {
           {canEdit && <Button onClick={openEdit} variant="outline" className="border-border rounded-sm no-print" data-testid="edit-quotation-btn"><Edit3 size={14} className="mr-1.5" /> Edit</Button>}
           {q.customer?.mobile && waEnabled && <a href={waLink(q.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-quotation"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
             <Button
-            onClick={() => {
-              document.body.classList.add("printing-document");
-              setTimeout(() => {
-                window.print();
-                setTimeout(() => document.body.classList.remove("printing-document"), 500);
-              }, 100);
-            }}
-            variant="outline"
-            className="border-border rounded-sm no-print"
-            data-testid="print-quotation"
-          >
-            <Printer size={14} className="mr-1.5" /> Print PDF
-          </Button>
+  onClick={() => {
+    document.body.classList.add("printing-document");
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("printing-document");
+      }, 500);
+    }, 100);
+  }}
+  variant="outline"
+  className="border-border rounded-sm no-print"
+  data-testid="print-quotation"
+>
+  <Printer size={14} className="mr-1.5" /> Print PDF
+</Button>
           {q.status !== "approved" && q.status !== "rejected" && (
             <Button onClick={markApproved} className="bg-emerald-600 hover:bg-emerald-500 rounded-sm no-print" data-testid="mark-approved-btn">Mark Approved</Button>
           )}
