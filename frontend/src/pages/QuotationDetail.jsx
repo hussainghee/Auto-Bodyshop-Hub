@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Printer, X, MessageCircle, Hourglass, ArrowRight, Edit3, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { printDocument } from "../lib/print";
 
 const round3 = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
@@ -147,15 +148,7 @@ export default function QuotationDetail() {
           {canEdit && <Button onClick={openEdit} variant="outline" className="border-border rounded-sm no-print" data-testid="edit-quotation-btn"><Edit3 size={14} className="mr-1.5" /> Edit</Button>}
           {q.customer?.mobile && waEnabled && <a href={waLink(q.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print"><Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-quotation"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button></a>}
             <Button
-  onClick={() => {
-    document.body.classList.add("printing-document");
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("printing-document");
-      }, 500);
-    }, 100);
-  }}
+  onClick={printDocument}
   variant="outline"
   className="border-border rounded-sm no-print"
   data-testid="print-quotation"
