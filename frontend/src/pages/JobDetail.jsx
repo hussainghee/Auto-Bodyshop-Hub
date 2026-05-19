@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, Upload, Trash2, Printer, CreditCard, Edit3, MessageCircle, Package, FileText, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+import { printDocument } from "../lib/print";
 
 const NEXT_STATUS = { confirmed: "in_progress", in_progress: "completed" };
 const INVOICE_TERMS = [
@@ -214,7 +215,14 @@ export default function JobDetail() {
       <PageHeader title={job.invoice_number || job.number} subtitle={job.invoice_number ? "Tax Invoice" : "Job Card"}
         actions={<>
           <Link to="/jobs" className="no-print"><Button variant="outline" className="border-border rounded-sm">← Back</Button></Link>
-          <Button onClick={() => window.print()} variant="outline" className="border-border rounded-sm no-print" data-testid="print-invoice"><Printer size={14} className="mr-1.5" /> Print {job.invoice_number ? "Invoice" : "Job Card"}</Button>
+          <Button
+  onClick={printDocument}
+  variant="outline"
+  className="border-border rounded-sm no-print"
+  data-testid="print-invoice"
+>
+  <Printer size={14} className="mr-1.5" /> Print {job.invoice_number ? "Invoice" : "Job Card"}
+</Button>
           {job.customer?.mobile && waEnabled && (
             <a href={waLink(job.customer.mobile, waMsg)} target="_blank" rel="noreferrer" className="no-print">
               <Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 rounded-sm" data-testid="wa-share-invoice"><MessageCircle size={14} className="mr-1.5" /> WhatsApp</Button>
@@ -225,10 +233,10 @@ export default function JobDetail() {
         </>}
       />
 
-      <div className="p-4 sm:p-8 grid lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className="job-detail-layout p-4 sm:p-8 grid lg:grid-cols-3 gap-4 sm:gap-6">
         <div className="lg:col-span-2 space-y-6">
           {/* PRINTABLE BRANDED INVOICE */}
-          <div className="print-page">
+          <div className="document-print-wrapper print-page">
             <BrandedDocument
               kind="invoice"
               title={job.invoice_number || job.number}
