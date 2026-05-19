@@ -17,11 +17,11 @@ import { printDocument } from "../lib/print";
 const round3 = (n) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 
 const QUOTATION_TERMS = [
-  "Quotation valid until the stated date. Pricing may change after expiry.",
-  "Materials, paint colours and tint shades may vary slightly from samples.",
-  "Vehicle must be delivered clean for accurate panel inspection.",
-  "Approved jobs require a 30% advance to lock in scheduling.",
-  "Wetworks is not liable for items left inside the vehicle.",
+  "Quotation is valid until the stated validity date.",
+  "Final pricing is subject to vehicle inspection and confirmed scope of work.",
+  "Materials, shades and finishing may vary slightly based on vehicle condition.",
+  "Approved jobs may require advance payment before scheduling.",
+  "WETWORKS Detailing Center is not liable for personal items left inside the vehicle.",
 ];
 
 export default function QuotationDetail() {
@@ -131,7 +131,7 @@ export default function QuotationDetail() {
   if (!q) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   const canEdit = q.status === "draft";
-  const waMsg = `Hello ${q.customer?.name || ""}, your Wetworks quotation ${q.number} is ready. Total: ${fmtKWD(q.total)}.`;
+  const waMsg = `Hello ${q.customer?.name || ""}, your WETWORKS Detailing Center quotation ${q.number} is ready. Total: ${fmtKWD(q.total)}.`;
   const meta = [
     { label: "Issue Date", value: fmtDate(q.created_at) },
     ...(q.valid_until ? [{ label: "Valid Until", value: fmtDate(q.valid_until) }] : []),
