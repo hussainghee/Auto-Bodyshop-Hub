@@ -106,42 +106,37 @@ h1, h2, h3, h4, h5, h6, .font-display {
 
 /* Print styles */
 /* Print styles */
+/* Print styles */
 @media print {
   @page {
     size: A4;
-    margin: 4mm;
+    margin: 8mm;
   }
 
   html,
   body {
-    width: 210mm;
-    min-height: 297mm;
+    width: auto !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
     background: #ffffff !important;
     color: #111827 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  body * {
+  body.printing-document * {
     visibility: hidden !important;
   }
 
-  #print-area,
-  #print-area * {
+  body.printing-document #print-area,
+  body.printing-document #print-area * {
     visibility: visible !important;
   }
 
-#print-area {
-  position: static !important;
-  width: 100% !important;
-  max-width: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-  background: #ffffff !important;
-  color: #111827 !important;
-}
+  body.printing-document #print-area {
+    visibility: visible !important;
+  }
 
   .no-print {
     display: none !important;
@@ -157,8 +152,46 @@ h1, h2, h3, h4, h5, h6, .font-display {
   .print-page {
     background: #ffffff !important;
     color: #111827 !important;
-    padding: 0 !important;
     margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .quotation-print-sheet {
+    position: relative !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .quotation-print-sheet * {
+    box-sizing: border-box !important;
+  }
+
+  .quotation-print-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  .quotation-print-sheet tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  .quotation-print-sheet thead {
+    display: table-header-group !important;
+  }
+
+  .quotation-print-sheet tfoot {
+    display: table-footer-group !important;
   }
 
   .print-page * {
@@ -182,6 +215,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   .print-divider {
     border-color: #e5e7eb !important;
   }
+}
 
   table {
     page-break-inside: auto;
