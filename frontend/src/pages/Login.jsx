@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
-import WetworksLogo from "../assets/wetworks-logo.jpeg";
+import WetworksLogo from "../assets/Wetworks-Logo.jpeg";
 
 export default function Login() {
   const { user, login } = useAuth();
