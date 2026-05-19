@@ -105,7 +105,6 @@ h1, h2, h3, h4, h5, h6, .font-display {
 }
 
 /* Print styles */
-/* Print styles */
 @media print {
   @page {
     size: A4;
@@ -143,7 +142,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
     display: none !important;
   }
 
-  .document-print-wrapper {
+  .document-print-wrapper,
+  .receipt-screen-wrapper {
     visibility: visible !important;
     display: block !important;
     width: 210mm !important;
@@ -154,7 +154,8 @@ h1, h2, h3, h4, h5, h6, .font-display {
   }
 
   #print-area,
-  .quotation-print-sheet {
+  .quotation-print-sheet,
+  .receipt-print-sheet {
     visibility: visible !important;
     position: absolute !important;
     left: 0 !important;
@@ -172,26 +173,31 @@ h1, h2, h3, h4, h5, h6, .font-display {
     color: #111827 !important;
   }
 
-  .quotation-print-sheet * {
+  .quotation-print-sheet *,
+  .receipt-print-sheet * {
     box-sizing: border-box !important;
   }
 
-  .quotation-print-sheet table {
+  .quotation-print-sheet table,
+  .receipt-print-sheet table {
     width: 100% !important;
     border-collapse: collapse !important;
     page-break-inside: auto !important;
   }
 
-  .quotation-print-sheet tr {
+  .quotation-print-sheet tr,
+  .receipt-print-sheet tr {
     page-break-inside: avoid !important;
     page-break-after: auto !important;
   }
 
-  .quotation-print-sheet thead {
+  .quotation-print-sheet thead,
+  .receipt-print-sheet thead {
     display: table-header-group !important;
   }
 
-  .quotation-print-sheet tfoot {
+  .quotation-print-sheet tfoot,
+  .receipt-print-sheet tfoot {
     display: table-footer-group !important;
   }
 
