@@ -66,7 +66,10 @@ const SMTP_FIELDS = [
 
 export default function SystemSettings() {
   const { user } = useAuth();
-  const isMaster = !!user?.is_master;
+  const isMaster =
+  user?.is_master === true ||
+  user?.is_master_admin === true ||
+  user?.isMasterAdmin === true;
   const [data, setData] = useState({ toggles: {}, integrations: {} });
   const [tab, setTab] = useState("toggles");
   const [saving, setSaving] = useState(false);
