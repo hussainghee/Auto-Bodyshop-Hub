@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { api, fmtKWD, fmtDateTime } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Printer } from "lucide-react";
+import { printDocument } from "../lib/print";
 
 const METHOD_LABEL = { cash: "Cash", knet: "K-net", credit_card: "Credit Card" };
 
@@ -20,14 +21,24 @@ export default function Receipt() {
   if (!payment) return <div className="p-8 text-muted-foreground bg-background min-h-screen">Payment not found.</div>;
 
   return (
-    <div className="bg-background min-h-screen text-foreground">
-      <div className="max-w-2xl mx-auto p-8">
+    <div className="bg-background min-h-screen text-foreground receipt-page">
+    <div className="max-w-2xl mx-auto p-8 receipt-screen-wrapper">
         <div className="flex items-center justify-between mb-4 no-print">
           <Link to={`/jobs/${jid}`} className="text-sm text-muted-foreground hover:text-white">← Back to Job</Link>
-          <Button onClick={() => window.print()} className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm" data-testid="print-receipt-btn"><Printer size={14} className="mr-1.5" /> Print Receipt</Button>
+          <Button
+  onClick={printDocument}
+  className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm"
+  data-testid="print-receipt-btn"
+>
+  <Printer size={14} className="mr-1.5" /> Print Receipt
+</Button>
         </div>
 
-        <div className="bg-[#0F1115] border border-border rounded-sm p-8 print:bg-white print:border-0 print:p-0" data-testid="receipt-card">
+        <div
+  id="print-area"
+  className="receipt-print-sheet bg-[#0F1115] border border-border rounded-sm p-8 print:bg-white print:border-0 print:p-0"
+  data-testid="receipt-card"
+>
           <div className="flex items-start justify-between border-b border-border pb-6">
             <div>
               <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">Payment Receipt</div>
