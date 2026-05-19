@@ -217,15 +217,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   }
 }
 
-  table {
-    page-break-inside: auto;
-  }
 
-  tr {
-    page-break-inside: avoid;
-    page-break-after: auto;
-  }
-}
 /* Sidebar link active */
 .nav-link {
   display: flex; align-items: center; gap: 12px;
