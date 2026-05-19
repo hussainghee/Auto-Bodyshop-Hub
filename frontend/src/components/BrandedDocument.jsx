@@ -31,7 +31,7 @@ export default function BrandedDocument({
   return (
     <div
   id="print-area"
-  className="quotation-print-sheet bg-white text-[#0a0b0e] rounded-sm max-w-4xl mx-auto p-8 sm:p-10 print:bg-white print-page font-sans"
+  className="quotation-print-sheet bg-white text-[#0a0b0e] rounded-sm mx-auto p-8 sm:p-10 print:bg-white print-page font-sans"
   style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
 >
       {/* Brand header */}
