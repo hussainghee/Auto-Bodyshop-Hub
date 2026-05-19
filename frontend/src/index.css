@@ -109,7 +109,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
 @media print {
   @page {
     size: A4;
-    margin: 6mm;
+    margin: 4mm;
   }
 
   html,
