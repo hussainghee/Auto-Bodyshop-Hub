@@ -30,10 +30,10 @@ export default function BrandedDocument({
 
   return (
     <div
-      id="print-area"
-      className="bg-white text-[#0a0b0e] rounded-sm max-w-4xl mx-auto p-8 sm:p-10 print:p-0 print:max-w-none print:bg-white print-page font-sans"
-      style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
-    >
+  id="print-area"
+  className="bg-white text-[#0a0b0e] rounded-sm max-w-4xl mx-auto p-8 sm:p-10 print:!w-full print:!max-w-none print:!mx-0 print:!p-0 print:!rounded-none print:bg-white print-page font-sans"
+  style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
+>
       {/* Brand header */}
       <div className="flex items-start justify-between gap-6 pb-6 border-b-2 border-[#0f766e] print-divider">
         <div className="flex items-center gap-4 min-w-0">
