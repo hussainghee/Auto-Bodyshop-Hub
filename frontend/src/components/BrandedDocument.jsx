@@ -4,17 +4,8 @@ import WetworksLogo from "../assets/Wetworks-Logo.jpeg";
 const BRAND = {
   name: "WETWORKS",
   subtitle: "DETAILING CENTER",
-  primary: "#8771B2",
-  primarySoft: "#F4F1FA",
-  border: "#D8D0EA",
-  black: "#000000",
-  text: "#111111",
-  muted: "#6B7280",
 };
 
-/**
- * Branded, print-ready document used for both quotations and invoices.
- */
 export default function BrandedDocument({
   kind = "quotation",
   title,
@@ -37,13 +28,12 @@ export default function BrandedDocument({
   return (
     <div
       id="print-area"
-      className="quotation-print-sheet bg-white text-[#111111] rounded-sm mx-auto p-8 sm:p-10 print:bg-white print-page font-sans"
+      className="quotation-print-sheet bg-white text-[#111111] rounded-sm mx-auto print:bg-white print-page font-sans"
       style={{ fontFamily: "'IBM Plex Sans', Arial, sans-serif" }}
     >
-      {/* Brand header */}
       <div className="print-brand-bar">
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="print-brand-layout">
+          <div className="print-brand-identity">
             <img
               src={WetworksLogo}
               alt="WETWORKS Detailing Center"
@@ -53,21 +43,20 @@ export default function BrandedDocument({
             <div className="min-w-0">
               <div className="print-company-name">{BRAND.name}</div>
               <div className="print-company-subtitle">{BRAND.subtitle}</div>
-              <div className="text-xs mt-2 leading-tight text-[#111111]">
-                Kuwait
-                <br />
-                +965 0000 0000 · hello@wetworks.kw
+              <div className="print-contact-line">
+                Kuwait · +965 0000 0000 · hello@wetworks.kw
               </div>
             </div>
           </div>
 
-          <div className="text-right shrink-0">
+          <div className="print-document-meta">
             <div className="print-document-label">
               {subtitle || (isInvoice ? "Invoice" : "Quotation")}
             </div>
+
             <div className="print-document-number">{title}</div>
 
-            <dl className="mt-3 space-y-1 text-xs">
+            <dl className="print-meta-list">
               {meta.map((m, i) => (
                 <div key={i} className="flex justify-end gap-3">
                   <dt className="uppercase tracking-wider text-[#6B7280] text-[10px]">
@@ -78,53 +67,61 @@ export default function BrandedDocument({
               ))}
             </dl>
 
-            {status && <div className="mt-3 flex justify-end">{status}</div>}
+            {status && <div className="print-status-row">{status}</div>}
           </div>
         </div>
       </div>
 
-      {/* Bill-to / Vehicle */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 my-6">
+      <div className="print-info-grid">
         <InfoCard title="Bill To">
           <div className="text-base font-bold text-[#111111]">
             {customer?.name || "—"}
           </div>
+
           {customer?.mobile && (
             <div className="text-sm text-[#4B5563] font-mono">
               {customer.mobile}
             </div>
           )}
+
           {customer?.email && (
-            <div className="text-sm text-[#4B5563]">{customer.email}</div>
+            <div className="text-sm text-[#4B5563] break-words">
+              {customer.email}
+            </div>
           )}
+
           {customer?.address && (
-            <div className="text-sm text-[#4B5563]">{customer.address}</div>
+            <div className="text-sm text-[#4B5563] break-words">
+              {customer.address}
+            </div>
           )}
+
           {customer?.city && (
             <div className="text-sm text-[#4B5563]">{customer.city}</div>
           )}
         </InfoCard>
 
         <InfoCard title="Vehicle">
-          <div className="text-base font-bold text-[#111111]">
+          <div className="text-base font-bold text-[#111111] break-words">
             {vehicle?.make} {vehicle?.model}{" "}
             {vehicle?.year ? `· ${vehicle.year}` : ""}
           </div>
+
           {vehicle?.vehicle_type && (
             <div className="text-sm text-[#4B5563] capitalize">
               {vehicle.vehicle_type}
               {vehicle.color ? ` · ${vehicle.color}` : ""}
             </div>
           )}
-          <div className="text-xs text-[#4B5563] font-mono mt-1">
+
+          <div className="text-xs text-[#4B5563] font-mono mt-1 break-words">
             Plate: {vehicle?.plate || "—"}
-            {vehicle?.vin ? `  ·  VIN: ${vehicle.vin}` : ""}
+            {vehicle?.vin ? ` · VIN: ${vehicle.vin}` : ""}
           </div>
         </InfoCard>
       </div>
 
-      {/* Lines table */}
-      <div className="border border-[#D8D0EA] rounded-sm overflow-hidden">
+      <div className="print-table-wrap border border-[#D8D0EA] rounded-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead className="print-table-head">
             <tr>
@@ -147,26 +144,31 @@ export default function BrandedDocument({
             {lines.map((l, i) => (
               <tr key={i} className="border-b border-[#E5E7EB] last:border-b-0">
                 <td className="px-4 py-3">
-                  <div className="font-semibold text-[#111111]">
+                  <div className="font-semibold text-[#111111] break-words">
                     {l.service_name}
                   </div>
+
                   {l.description && (
-                    <div className="text-xs text-[#6B7280] mt-0.5">
+                    <div className="text-xs text-[#6B7280] mt-0.5 break-words">
                       {l.description}
                     </div>
                   )}
+
                   {l.selected_areas?.length > 0 && (
                     <div className="text-[11px] text-[#6B7280] mt-0.5">
                       Areas: {l.selected_areas.length} selected
                     </div>
                   )}
                 </td>
+
                 <td className="px-4 py-3 text-right font-mono text-[#111111]">
                   {l.quantity}
                 </td>
+
                 <td className="px-4 py-3 text-right font-mono text-[#111111]">
                   {fmtKWD(l.unit_price)}
                 </td>
+
                 <td className="px-4 py-3 text-right font-mono font-semibold text-[#111111]">
                   {fmtKWD(l.line_total)}
                 </td>
@@ -176,7 +178,6 @@ export default function BrandedDocument({
         </table>
       </div>
 
-      {/* Totals */}
       <div className="flex justify-end mt-4">
         <div className="w-full sm:w-80 border border-[#D8D0EA] rounded-sm overflow-hidden">
           <SummaryRow label="Subtotal" value={fmtKWD(totals.subtotal)} />
@@ -204,6 +205,7 @@ export default function BrandedDocument({
             <div className="text-[11px] uppercase tracking-wider font-bold">
               {isInvoice ? "Total Due" : "Grand Total"}
             </div>
+
             <div className="font-mono text-2xl font-black">
               {fmtKWD(totals.total)}
             </div>
@@ -212,6 +214,7 @@ export default function BrandedDocument({
           {isInvoice && (
             <>
               <SummaryRow label="Paid" value={fmtKWD(totals.total_paid)} positive />
+
               <SummaryRow
                 label="Balance Due"
                 value={fmtKWD(totals.balance_due)}
@@ -222,11 +225,11 @@ export default function BrandedDocument({
         </div>
       </div>
 
-      {/* Payments table */}
       {isInvoice && payments && payments.length > 0 && (
         <div className="mt-6">
           <div className="print-section-title">Payments Received</div>
-          <div className="border border-[#D8D0EA] rounded-sm overflow-hidden mt-2">
+
+          <div className="print-table-wrap border border-[#D8D0EA] rounded-sm overflow-hidden mt-2">
             <table className="w-full text-xs">
               <thead className="bg-[#F4F1FA] text-[#111111]">
                 <tr>
@@ -244,18 +247,22 @@ export default function BrandedDocument({
                   </th>
                 </tr>
               </thead>
+
               <tbody>
                 {payments.map((p) => (
                   <tr key={p.id} className="border-t border-[#E5E7EB]">
                     <td className="px-3 py-2 text-[#4B5563]">
                       {fmtDate(p.recorded_at)}
                     </td>
+
                     <td className="px-3 py-2 capitalize">
                       {(p.method || "").replace("_", " ")}
                     </td>
+
                     <td className="px-3 py-2 font-mono text-[#4B5563]">
                       {p.auth_code || "—"}
                     </td>
+
                     <td className="px-3 py-2 text-right font-mono font-semibold">
                       {fmtKWD(p.amount)}
                     </td>
@@ -267,20 +274,19 @@ export default function BrandedDocument({
         </div>
       )}
 
-      {/* Notes */}
       {notes && (
         <div className="mt-6 border-t border-[#D8D0EA] pt-4">
           <div className="print-section-title">Notes</div>
-          <div className="text-sm text-[#111111] whitespace-pre-line mt-2">
+          <div className="text-sm text-[#111111] whitespace-pre-line mt-2 break-words">
             {notes}
           </div>
         </div>
       )}
 
-      {/* Terms */}
       {terms.length > 0 && (
         <div className="mt-6 border-t border-[#D8D0EA] pt-4">
           <div className="print-section-title">Terms & Conditions</div>
+
           <ol className="text-[11px] text-[#4B5563] space-y-1 list-decimal list-inside mt-2">
             {terms.map((t, i) => (
               <li key={i}>{t}</li>
@@ -289,7 +295,7 @@ export default function BrandedDocument({
         </div>
       )}
 
-      <div className="mt-8 pt-4 border-t border-[#D8D0EA] flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 text-[11px] text-[#4B5563]">
+      <div className="print-document-footer">
         <div>
           <div className="font-semibold text-[#111111] mb-0.5">
             WETWORKS Detailing Center
