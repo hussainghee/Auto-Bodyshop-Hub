@@ -382,10 +382,12 @@ def _user_full_name(u: dict) -> str:
 async def _enrich_user(u: dict) -> dict:
     if u.get("role_id"):
         r = await db.roles.find_one({"id": u["role_id"]}, {"_id": 0, "name": 1})
-        if r: u["role_name"] = r["name"]
+        if r:
+            u["role_name"] = r["name"]
     return u
 
-    async def can_manage_users(user: dict) -> bool:
+
+async def can_manage_users(user: dict) -> bool:
     if user.get("is_master"):
         return True
 
@@ -394,6 +396,7 @@ async def _enrich_user(u: dict) -> dict:
 
     permissions = await _resolve_permissions(user)
     return bool(permissions.get("settings_users"))
+    
 @api.get("/users")
 async def list_users(user=Depends(get_current_user)):
     if not await can_manage_users(user):
