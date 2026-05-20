@@ -77,6 +77,19 @@ def require_roles(*roles: str):
             raise HTTPException(403, f"Requires role: {', '.join(roles)}")
         return user
     return check
+def require_permission(permission_key: str):
+    async def check(user=Depends(get_current_user)):
+        if user.get("is_master"):
+            return user
+
+        permissions = await _resolve_permissions(user)
+
+        if not permissions.get(permission_key):
+            raise HTTPException(403, f"Requires permission: {permission_key}")
+
+        return user
+
+    return check
 
 def audit(user, doc: dict, creating: bool = True):
     ts = now_iso()
@@ -2094,7 +2107,7 @@ async def dashboard(user=Depends(get_current_user)):
     }
 
 @api.get("/reports/sales")
-async def sales_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+async def sales_report(..., user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {"status": "completed"}
     df = _date_filter(start, end)
     if df: flt["completed_at"] = df
@@ -2114,7 +2127,7 @@ async def sales_report(start: Optional[str] = None, end: Optional[str] = None, u
             "by_method": [{"method": k, "amount": round3(v)} for k, v in by_method.items()]}
 
 @api.get("/reports/jobs")
-async def jobs_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(get_current_user)):
+async def jobs_report(..., user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {}
     df = _date_filter(start, end)
     if df: flt["created_at"] = df
@@ -2125,14 +2138,14 @@ async def jobs_report(start: Optional[str] = None, end: Optional[str] = None, us
     return {"jobs": jobs, "by_status": [{"status": k, "count": v} for k, v in by_status.items()]}
 
 @api.get("/reports/inventory")
-async def inv_report(user=Depends(get_current_user)):
+async def inv_report(user=Depends(require_permission("reports"))):
     items = await db.inventory.find({}, {"_id": 0}).to_list(2000)
     total_value = round3(sum(i.get("stock_qty", 0) * i.get("cost_price", 0) for i in items))
     low = [i for i in items if i.get("stock_qty", 0) <= i.get("low_stock_threshold", 0)]
     return {"items": items, "total_stock_value": total_value, "low_stock": low}
 
 @api.get("/reports/pnl")
-async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles("admin"))):
+async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {"status": "completed"}
     df = _date_filter(start, end)
     if df: flt["completed_at"] = df
@@ -2157,7 +2170,7 @@ async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, use
     }
 
 @api.get("/reports/customer-history/{cid}")
-async def customer_history(cid: str, start: Optional[str] = None, end: Optional[str] = None, user=Depends(get_current_user)):
+async def customer_history(..., user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {"customer_id": cid}
     df = _date_filter(start, end)
     if df: flt["created_at"] = df
