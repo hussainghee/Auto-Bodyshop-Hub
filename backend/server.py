@@ -77,19 +77,6 @@ def require_roles(*roles: str):
             raise HTTPException(403, f"Requires role: {', '.join(roles)}")
         return user
     return check
-def require_permission(permission_key: str):
-    async def check(user=Depends(get_current_user)):
-        if user.get("is_master"):
-            return user
-
-        permissions = await _resolve_permissions(user)
-
-        if not permissions.get(permission_key):
-            raise HTTPException(403, f"Requires permission: {permission_key}")
-
-        return user
-
-    return check
 
 def audit(user, doc: dict, creating: bool = True):
     ts = now_iso()
@@ -370,6 +357,19 @@ async def _resolve_permissions(user: dict) -> Dict[str, bool]:
     """Master admins get all true. Otherwise look up role permissions."""
     if user.get("is_master"):
         return {k: True for k in PERMISSION_KEYS}
+        def require_permission(permission_key: str):
+    async def check(user=Depends(get_current_user)):
+        if user.get("is_master"):
+            return user
+
+        permissions = await _resolve_permissions(user)
+
+        if not permissions.get(permission_key):
+            raise HTTPException(403, f"Requires permission: {permission_key}")
+
+        return user
+
+    return check
     rid = user.get("role_id")
     if rid:
         role = await db.roles.find_one({"id": rid}, {"_id": 0, "permissions": 1, "active": 1})
