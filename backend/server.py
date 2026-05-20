@@ -1417,28 +1417,50 @@ async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_ro
 @api.post("/jobs/{jid}/status")
 async def job_status(jid: str, body: JobStatusIn, user=Depends(get_current_user)):
     job = await db.jobs.find_one({"id": jid})
-    if not job: raise HTTPException(404)
+    if not job:
+        raise HTTPException(404)
+
     if user["role"] == "technician" and job.get("technician_id") != user["id"]:
         raise HTTPException(403, "Not assigned")
+
     upd: Dict[str, Any] = {"status": body.status}
     audit(user, upd, creating=False)
+
     if body.status == "completed":
         if not job.get("invoice_number"):
             seq = await _next_seq("invoice")
             upd["invoice_number"] = f"INV-{seq:05d}"
+
         upd["completed_at"] = now_iso()
+
         # stop running timer if any
         entries = job.get("time_entries", [])
         for e in entries:
             if e.get("end") is None:
-                e["end"] = now_iso()
+                end_time = now_iso()
+                e["end"] = end_time
                 start = datetime.fromisoformat(e["start"])
-                e["duration_seconds"] = int((datetime.now(timezone.utc) - start).total_seconds())
+                e["duration_seconds"] = int(
+                    (datetime.now(timezone.utc) - start).total_seconds()
+                )
+
         upd["time_entries"] = entries
-        # deduct any consumed inventory
+
+        # deduct consumed inventory
+        # line consumption stores inventory_id, not id
         for line in job.get("lines", []):
             for inv in line.get("consumed_inventory", []) or []:
-                await db.inventory.update_one({"id": inv["id"]}, {"$inc": {"stock_qty": -inv.get("qty", 0)}})
+                inv_id = inv.get("inventory_id") or inv.get("id")
+                qty = float(inv.get("qty") or 0)
+
+                if not inv_id or qty <= 0:
+                    continue
+
+                await db.inventory.update_one(
+                    {"id": inv_id},
+                    {"$inc": {"stock_qty": -qty}}
+                )
+
     await db.jobs.update_one({"id": jid}, {"$set": upd})
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
