@@ -4,6 +4,7 @@ import WetworksLogo from "../assets/Wetworks-Logo.jpeg";
 const BRAND = {
   name: "WETWORKS",
   subtitle: "DETAILING CENTER",
+  phone: "+965 9991 9614",
 };
 
 export default function BrandedDocument({
@@ -44,7 +45,7 @@ export default function BrandedDocument({
               <div className="print-company-name">{BRAND.name}</div>
               <div className="print-company-subtitle">{BRAND.subtitle}</div>
               <div className="print-contact-line">
-                Kuwait · +965 0000 0000 · hello@wetworks.kw
+                Kuwait · {BRAND.phone}
               </div>
             </div>
           </div>
@@ -296,12 +297,11 @@ export default function BrandedDocument({
       )}
 
       <div className="print-document-footer">
-        <div>
+        <<div>
           <div className="font-semibold text-[#111111] mb-0.5">
             WETWORKS Detailing Center
           </div>
-          <div>Kuwait · +965 0000 0000</div>
-          <div>www.wetworks.kw · hello@wetworks.kw</div>
+          <div>Kuwait · {BRAND.phone}</div>
         </div>
 
         <div className="text-right">
