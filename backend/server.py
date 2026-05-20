@@ -357,34 +357,37 @@ async def _resolve_permissions(user: dict) -> Dict[str, bool]:
     """Master admins get all true. Otherwise look up role permissions."""
     if user.get("is_master"):
         return {k: True for k in PERMISSION_KEYS}
-        def require_permission(permission_key: str):
+
+    rid = user.get("role_id")
+    if rid:
+        role = await db.roles.find_one({"id": rid}, {"_id": 0, "permissions": 1, "active": 1})
+        if role and role.get("active") is not False:
+            return {k: bool(role.get("permissions", {}).get(k, False)) for k in PERMISSION_KEYS}
+
+    # Legacy fallback: admin → all; sales → most; tech → jobs only
+    legacy = user.get("role")
+    if legacy == "admin":
+        return {k: True for k in PERMISSION_KEYS if k != "system_settings"}
+    if legacy == "sales":
+        return {k: k in {"dashboard", "customers", "segments", "vehicles", "quotations", "jobs",
+                         "inventory_categories", "inventory_products", "reports"} for k in PERMISSION_KEYS}
+    if legacy == "technician":
+        return {k: k in {"dashboard", "jobs"} for k in PERMISSION_KEYS}
+    return {k: False for k in PERMISSION_KEYS}
+
+
+def require_permission(permission_key: str):
     async def check(user=Depends(get_current_user)):
         if user.get("is_master"):
             return user
 
         permissions = await _resolve_permissions(user)
-
         if not permissions.get(permission_key):
             raise HTTPException(403, f"Requires permission: {permission_key}")
 
         return user
 
     return check
-    rid = user.get("role_id")
-    if rid:
-        role = await db.roles.find_one({"id": rid}, {"_id": 0, "permissions": 1, "active": 1})
-        if role and role.get("active") is not False:
-            return {k: bool(role.get("permissions", {}).get(k, False)) for k in PERMISSION_KEYS}
-    # Legacy fallback: admin → all; sales → most; tech → jobs only
-    legacy = user.get("role")
-    if legacy == "admin":
-        return {k: True for k in PERMISSION_KEYS if k != "system_settings"}
-    if legacy == "sales":
-        return {k: k in {"dashboard","customers","segments","vehicles","quotations","jobs",
-                         "inventory_categories","inventory_products","reports"} for k in PERMISSION_KEYS}
-    if legacy == "technician":
-        return {k: k in {"dashboard","jobs"} for k in PERMISSION_KEYS}
-    return {k: False for k in PERMISSION_KEYS}
 
 def _user_full_name(u: dict) -> str:
     fn = u.get("first_name") or ""
@@ -2107,7 +2110,7 @@ async def dashboard(user=Depends(get_current_user)):
     }
 
 @api.get("/reports/sales")
-async def sales_report(..., user=Depends(require_permission("reports"))):
+async def sales_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {"status": "completed"}
     df = _date_filter(start, end)
     if df: flt["completed_at"] = df
@@ -2127,7 +2130,7 @@ async def sales_report(..., user=Depends(require_permission("reports"))):
             "by_method": [{"method": k, "amount": round3(v)} for k, v in by_method.items()]}
 
 @api.get("/reports/jobs")
-async def jobs_report(..., user=Depends(require_permission("reports"))):
+async def jobs_report(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {}
     df = _date_filter(start, end)
     if df: flt["created_at"] = df
@@ -2158,7 +2161,8 @@ async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, use
     for j in jobs:
         for line in j.get("lines", []):
             for inv in line.get("consumed_inventory", []) or []:
-                inv_doc = await db.inventory.find_one({"id": inv["id"]}, {"_id": 0})
+                inv_id = inv.get("inventory_id") or inv.get("id")
+                inv_doc = await db.inventory.find_one({"id": inv_id}, {"_id": 0}) if inv_id else None
                 if inv_doc:
                     cogs += inv_doc.get("cost_price", 0) * inv.get("qty", 0)
     cogs = round3(cogs)
@@ -2170,7 +2174,7 @@ async def pnl_report(start: Optional[str] = None, end: Optional[str] = None, use
     }
 
 @api.get("/reports/customer-history/{cid}")
-async def customer_history(..., user=Depends(require_permission("reports"))):
+async def customer_history(cid: str, start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_permission("reports"))):
     flt: Dict[str, Any] = {"customer_id": cid}
     df = _date_filter(start, end)
     if df: flt["created_at"] = df
