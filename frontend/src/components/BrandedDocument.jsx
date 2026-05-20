@@ -1,6 +1,5 @@
 import { fmtKWD, fmtDate } from "../lib/api";
-
-const LOGO = "https://customer-assets.emergentagent.com/job_vehicle-care-crm/artifacts/d5acrado_Wetworks-Logo.jpeg";
+import WetworksLogo from "../assets/Wetworks-Logo.jpeg";
 
 const BRAND = {
   name: "WETWORKS",
@@ -46,7 +45,7 @@ export default function BrandedDocument({
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4 min-w-0">
             <img
-              src={LOGO}
+              src={WetworksLogo}
               alt="WETWORKS Detailing Center"
               className="print-logo"
             />
