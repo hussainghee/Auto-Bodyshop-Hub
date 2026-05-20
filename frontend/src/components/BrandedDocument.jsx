@@ -297,7 +297,7 @@ export default function BrandedDocument({
       )}
 
       <div className="print-document-footer">
-        <<div>
+        <div>
           <div className="font-semibold text-[#111111] mb-0.5">
             WETWORKS Detailing Center
           </div>
