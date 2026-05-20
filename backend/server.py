@@ -385,18 +385,50 @@ async def _enrich_user(u: dict) -> dict:
         if r: u["role_name"] = r["name"]
     return u
 
+    async def can_manage_users(user: dict) -> bool:
+    if user.get("is_master"):
+        return True
+
+    if user.get("role") == "admin":
+        return True
+
+    permissions = await _resolve_permissions(user)
+    return bool(permissions.get("settings_users"))
 @api.get("/users")
 async def list_users(user=Depends(get_current_user)):
-    if not (user.get("is_master") or user.get("role") == "admin"):
-        # Allow other roles only minimal fields for filter dropdowns (creator filter)
-        rows = await db.users.find({}, {"_id": 0, "id": 1, "name": 1, "first_name": 1, "last_name": 1}).to_list(500)
+    if not await can_manage_users(user):
+        # Allow other roles only minimal fields for dropdowns / filters
+        rows = await db.users.find(
+            {},
+            {"_id": 0, "id": 1, "name": 1, "first_name": 1, "last_name": 1}
+        ).to_list(500)
+
         for r in rows:
             r["name"] = _user_full_name(r) or r.get("name") or ""
+
         return rows
-    rows = await db.users.find({}, {"_id": 0, "password": 0}).to_list(500)
+
+    # Master admin can see all users.
+    # Normal admins / users with settings_users permission should not see master users.
+    if user.get("is_master"):
+        query = {}
+    else:
+        query = {
+            "$or": [
+                {"is_master": {"$exists": False}},
+                {"is_master": False}
+            ]
+        }
+
+    rows = await db.users.find(
+        query,
+        {"_id": 0, "password": 0}
+    ).to_list(500)
+
     for r in rows:
         r["name"] = _user_full_name(r) or r.get("name") or ""
         await _enrich_user(r)
+
     return rows
 
 @api.get("/users/technicians")
@@ -404,66 +436,126 @@ async def list_techs(user=Depends(get_current_user)):
     return await db.users.find({"role": "technician"}, {"_id": 0, "password": 0}).to_list(500)
 
 @api.post("/users")
-async def create_user(body: UserCreate, user=Depends(require_roles("admin"))):
+async def create_user(body: UserCreate, user=Depends(get_current_user)):
+    if not await can_manage_users(user):
+        raise HTTPException(403, "You do not have permission to create users.")
+
+    # Only master admin can create another master admin
+    if body.is_master and not user.get("is_master"):
+        raise HTTPException(403, "Only a master admin can create master admin users.")
+
     fn = (body.first_name or "").strip()
     ln = (body.last_name or "").strip()
     name = body.name or f"{fn} {ln}".strip() or "Unnamed"
     mobile = (body.mobile or "").strip()
     email = (body.email or "").strip().lower() or None
+
     if not email and not mobile:
-        raise HTTPException(400, "Provide mobile (or email) for the user.")
+        raise HTTPException(400, "Provide mobile or email for the user.")
+
     if email and await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already exists")
+
     if mobile and await db.users.find_one({"mobile": mobile}):
         raise HTTPException(400, "Mobile already exists")
-    pwd = body.password or "wetworks123"  # default temp; admin should set
+
+    pwd = body.password or "wetworks123"
+
     doc = {
-        "id": new_id(), "name": name,
-        "first_name": fn or None, "last_name": ln or None,
-        "email": email, "mobile": mobile or None,
-        "role_id": body.role_id, "is_master": bool(body.is_master),
-        "role": body.role or "sales",  # legacy field for back-compat
-        "password": hash_password(pwd), "active": body.active if body.active is not None else True,
+        "id": new_id(),
+        "name": name,
+        "first_name": fn or None,
+        "last_name": ln or None,
+        "email": email,
+        "mobile": mobile or None,
+        "role_id": body.role_id,
+        "is_master": bool(body.is_master) if user.get("is_master") else False,
+        "role": body.role or "sales",
+        "password": hash_password(pwd),
+        "active": body.active if body.active is not None else True,
     }
+
     audit(user, doc)
     await db.users.insert_one(doc.copy())
+
     doc.pop("password", None)
     await _enrich_user(doc)
+
     return doc
 
 @api.patch("/users/{uid}")
-async def update_user(uid: str, body: UserUpdate, user=Depends(require_roles("admin"))):
+async def update_user(uid: str, body: UserUpdate, user=Depends(get_current_user)):
+    if not await can_manage_users(user):
+        raise HTTPException(403, "You do not have permission to update users.")
+
+    target = await db.users.find_one({"id": uid}, {"_id": 0, "is_master": 1})
+
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    if target.get("is_master") and not user.get("is_master"):
+        raise HTTPException(403, "Cannot modify a master admin user.")
+
     upd = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+
+    # Only master admin can grant master access
+    if "is_master" in upd and upd["is_master"] and not user.get("is_master"):
+        raise HTTPException(403, "Only a master admin can grant master privileges.")
+
+    # Normal admin cannot set is_master at all
+    if "is_master" in upd and not user.get("is_master"):
+        upd.pop("is_master", None)
+
     if "password" in upd:
         upd["password"] = hash_password(upd["password"])
+
     if "first_name" in upd or "last_name" in upd or "name" in upd:
-        cur = await db.users.find_one({"id": uid}, {"_id": 0, "first_name": 1, "last_name": 1, "name": 1})
+        cur = await db.users.find_one(
+            {"id": uid},
+            {"_id": 0, "first_name": 1, "last_name": 1, "name": 1}
+        )
+
         if cur:
             fn = upd.get("first_name", cur.get("first_name") or "")
             ln = upd.get("last_name", cur.get("last_name") or "")
             full = f"{fn} {ln}".strip()
-            if full: upd["name"] = full
-    # Only existing master can grant master
-    if "is_master" in upd and upd["is_master"] and not user.get("is_master"):
-        raise HTTPException(403, "Only a master admin can grant master privileges.")
+
+            if full:
+                upd["name"] = full
+
     audit(user, upd, creating=False)
+
     await db.users.update_one({"id": uid}, {"$set": upd})
+
     out = await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+
     return await _enrich_user(out) if out else out
-
+    
 @api.delete("/users/{uid}")
-async def delete_user(uid: str, user=Depends(require_roles("admin"))):
-    target = await db.users.find_one({"id": uid}, {"_id": 0, "is_master": 1})
-    if target and target.get("is_master") and not user.get("is_master"):
-        raise HTTPException(403, "Cannot delete a master admin")
-    if target and target.get("is_master"):
-        # Don't allow self-delete of last master
-        masters = await db.users.count_documents({"is_master": True, "active": {"$ne": False}})
-        if masters <= 1:
-            raise HTTPException(400, "Cannot delete the last master admin")
-    await db.users.delete_one({"id": uid})
-    return {"ok": True}
+async def delete_user(uid: str, user=Depends(get_current_user)):
+    if not await can_manage_users(user):
+        raise HTTPException(403, "You do not have permission to delete users.")
 
+    target = await db.users.find_one({"id": uid}, {"_id": 0, "is_master": 1})
+
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    if target.get("is_master") and not user.get("is_master"):
+        raise HTTPException(403, "Cannot delete a master admin.")
+
+    if target.get("is_master"):
+        masters = await db.users.count_documents({
+            "is_master": True,
+            "active": {"$ne": False}
+        })
+
+        if masters <= 1:
+            raise HTTPException(400, "Cannot delete the last master admin.")
+
+    await db.users.delete_one({"id": uid})
+
+    return {"ok": True}
 # ---------------- Roles ----------------
 @api.get("/roles")
 async def list_roles(user=Depends(get_current_user)):
