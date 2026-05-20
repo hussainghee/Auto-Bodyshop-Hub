@@ -12,6 +12,7 @@ const METHOD_LABEL = {
   credit_card: "Credit Card",
   other: "Other",
 };
+const COMPANY_PHONE = "+965 9991 9614";
 
 export default function Receipt() {
   const { jid, pid } = useParams();
@@ -77,7 +78,7 @@ export default function Receipt() {
                   <div className="print-company-name">WETWORKS</div>
                   <div className="print-company-subtitle">DETAILING CENTER</div>
                   <div className="print-contact-line">
-                    Kuwait · +965 0000 0000 · hello@wetworks.kw
+                    Kuwait · {COMPANY_PHONE}
                   </div>
                 </div>
               </div>
@@ -161,12 +162,11 @@ export default function Receipt() {
 
           <div className="print-document-footer">
             <div>
-              <div className="font-semibold text-[#111111]">
-                WETWORKS Detailing Center
-              </div>
-              <div>Kuwait · +965 0000 0000</div>
-              <div>www.wetworks.kw · hello@wetworks.kw</div>
-            </div>
+                  <div className="font-semibold text-[#111111]">
+                    WETWORKS Detailing Center
+                  </div>
+                  <div>Kuwait · {COMPANY_PHONE}</div>
+                </div>
 
             <div className="text-right font-semibold text-[#111111]">
               Thank you for your business.
