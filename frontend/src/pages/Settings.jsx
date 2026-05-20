@@ -75,13 +75,24 @@ export default function Settings() {
           </div>
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase tracking-widest text-muted-foreground bg-[#0a0b0e]">
-              <tr className="border-b border-border"><th className="text-left px-6 py-3">Name</th><th className="text-left px-6 py-3">Email</th><th className="text-left px-6 py-3">Role</th><th className="text-left px-6 py-3">Status</th></tr>
+              <tr className="border-b border-border">
+  <th className="text-left px-6 py-3">Name</th>
+  <th className="text-left px-6 py-3">Mobile</th>
+  <th className="text-left px-6 py-3">Email</th>
+  <th className="text-left px-6 py-3">Role</th>
+  <th className="text-left px-6 py-3">Status</th>
+</tr>
             </thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id} className="border-b border-border/60">
                   <td className="px-6 py-3 font-semibold">{u.name}</td>
-                  <td className="px-6 py-3 font-mono-data text-muted-foreground">{u.email}</td>
+                  <td className="px-6 py-3 font-mono-data text-muted-foreground">
+                    {u.mobile || u.phone || u.mobile_number || "—"}
+                  </td>
+                  <td className="px-6 py-3 font-mono-data text-muted-foreground">
+                    {u.email || "—"}
+                  </td>
                   <td className="px-6 py-3"><span className="text-[10px] uppercase tracking-wider px-2 py-1 border border-border rounded-sm">{u.role}</span></td>
                   <td className="px-6 py-3 text-emerald-400 text-xs uppercase tracking-wider">{u.active === false ? "Disabled" : "Active"}</td>
                 </tr>
