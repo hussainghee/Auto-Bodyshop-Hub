@@ -11,7 +11,7 @@ import CommandPalette from "./CommandPalette";
 const LOGO = "https://customer-assets.emergentagent.com/job_vehicle-care-crm/artifacts/d5acrado_Wetworks-Logo.jpeg";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: ["admin","sales","technician"], perm: "dashboard" },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard" },
   {
     label: "Customers", icon: Users, roles: ["admin","sales"],
     children: [
@@ -29,7 +29,7 @@ const NAV = [
       { to: "/inventory", label: "Products", perm: "inventory_products" },
     ],
   },
-  { to: "/services", label: "Services", icon: SlidersHorizontal, roles: ["admin"], perm: "services" },
+  { to: "/services", label: "Services", icon: SlidersHorizontal, perm: "services" },
   { to: "/reports", label: "Reports", icon: BarChart3, roles: ["admin","sales"], perm: "reports" },
   {
     label: "Settings", icon: SetIcon, roles: ["admin"],
