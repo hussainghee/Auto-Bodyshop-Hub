@@ -1,7 +1,10 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND_URL}/api`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+
+export const API = BACKEND_URL
+  ? `${BACKEND_URL.replace(/\/$/, "")}/api`
+  : "/api";
 
 export const api = axios.create({ baseURL: API });
 
@@ -28,7 +31,9 @@ api.interceptors.response.use(
 export const fileUrl = (relative) => {
   if (!relative) return "";
   if (relative.startsWith("http")) return relative;
-  return `${BACKEND_URL}${relative}`;
+
+  const base = BACKEND_URL ? BACKEND_URL.replace(/\/$/, "") : "";
+  return `${base}${relative}`;
 };
 
 export const fmtKWD = (n) => {
