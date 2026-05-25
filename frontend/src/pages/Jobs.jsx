@@ -8,7 +8,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Search, Filter, X } from "lucide-react";
+import { Search, Filter, X, Plus } from "lucide-react";
 
 const STATUS_OPTIONS = ["confirmed", "in_progress", "completed", "cancelled"];
 
@@ -44,8 +44,23 @@ export default function Jobs() {
   const activeFiltersCount = (statusFilter !== "all" ? 1 : 0) + (creatorFilter !== "all" ? 1 : 0) + (start ? 1 : 0) + (end ? 1 : 0);
 
   return (
-    <div data-testid="jobs-page">
-      <PageHeader title={user?.role === "technician" ? "My Assigned Jobs" : "Job Cards"} subtitle="Operations" />
+  <div data-testid="jobs-page">
+    <PageHeader
+      title={user?.role === "technician" ? "My Assigned Jobs" : "Job Cards"}
+      subtitle="Operations"
+      actions={
+        user?.role !== "technician" ? (
+          <Button
+            onClick={() => nav("/jobs/new")}
+            className="bg-[#0066FF] hover:bg-[#3385FF] rounded-sm"
+            data-testid="new-job-btn"
+          >
+            <Plus size={16} className="mr-1.5" />
+            New Job Card
+          </Button>
+        ) : null
+      }
+    />
       <div className="p-4 sm:p-8 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[240px] max-w-md">
