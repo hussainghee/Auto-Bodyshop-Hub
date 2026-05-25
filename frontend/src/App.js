@@ -25,6 +25,7 @@ import SystemSettings from "./pages/SystemSettings";
 import Roles from "./pages/Roles";
 import Users from "./pages/Users";
 import VehicleManagement from "./pages/VehicleManagement";
+import JobCreate from "./pages/JobCreate";
 
 const isMasterAdminUser = (user) =>
   user?.is_master === true ||
@@ -210,6 +211,15 @@ function App() {
                   </Protected>
                 }
               />
+
+              <Route
+                    path="/jobs/new"
+                    element={
+                      <Protected permission="jobs">
+                        <JobCreate />
+                      </Protected>
+                    }
+                  />
 
               <Route
                 path="/jobs/:id"
