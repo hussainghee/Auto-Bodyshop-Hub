@@ -259,6 +259,17 @@ class QuotationStatusIn(BaseModel):
 class JobStatusIn(BaseModel):
     status: Literal["draft", "confirmed", "in_progress", "completed", "cancelled"]
 
+class JobCreateIn(BaseModel):
+    customer_id: str
+    vehicle_id: str
+    lines: List[QuotationLineIn]
+    discount: float = 0
+    discount_type: Optional[Literal["amount", "percent"]] = None
+    discount_value: Optional[float] = None
+    tax_rate: float = 0
+    notes: Optional[str] = None
+    technician_id: Optional[str] = None
+
 class JobChecklistIn(BaseModel):
     items: List[Dict[str, Any]]
 
@@ -1434,6 +1445,69 @@ def _enrich_job(job):
     job["total_seconds"] = total_sec
     job["timer_running"] = running is not None
     return job
+
+@api.post("/jobs")
+async def create_job_direct(body: JobCreateIn, user=Depends(require_roles("admin", "sales"))):
+    customer = await db.customers.find_one({"id": body.customer_id}, {"_id": 0})
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+
+    vehicle = await db.vehicles.find_one({"id": body.vehicle_id}, {"_id": 0})
+    if not vehicle:
+        raise HTTPException(404, "Vehicle not found")
+
+    lines = [l.model_dump() for l in body.lines]
+    if not lines:
+        raise HTTPException(400, "At least one service line is required")
+
+    totals = _calc_totals(
+        lines,
+        body.discount,
+        body.tax_rate,
+        body.discount_type,
+        body.discount_value
+    )
+
+    seq = await _next_seq("job")
+
+    job = {
+        "id": new_id(),
+        "number": f"JC-{seq:05d}",
+
+        # Direct job card: no quotation link
+        "quotation_id": None,
+        "quotation_number": None,
+        "source": "direct",
+
+        "customer_id": body.customer_id,
+        "vehicle_id": body.vehicle_id,
+        "lines": lines,
+
+        "subtotal": totals["subtotal"],
+        "discount": totals["discount"],
+        "discount_type": totals.get("discount_type"),
+        "discount_value": totals.get("discount_value"),
+        "tax_rate": totals["tax_rate"],
+        "tax_amount": totals["tax_amount"],
+        "total": totals["total"],
+
+        "status": "confirmed",
+        "technician_id": body.technician_id,
+        "checklist": [],
+        "before_photos": [],
+        "after_photos": [],
+        "payments": [],
+        "time_entries": [],
+        "invoice_number": None,
+        "completed_at": None,
+        "notes": body.notes,
+    }
+
+    audit(user, job)
+    await db.jobs.insert_one(job.copy())
+
+    job.pop("_id", None)
+    return _enrich_job(job)
 
 @api.get("/jobs")
 async def list_jobs(
