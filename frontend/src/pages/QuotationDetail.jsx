@@ -7,6 +7,7 @@ import StatusBadge from "../components/StatusBadge";
 import BrandedDocument from "../components/BrandedDocument";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -278,7 +279,20 @@ export default function QuotationDetail() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label className="text-[10px] uppercase tracking-wider">Valid Until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-1 bg-background border-border rounded-sm" /></div>
-              <div><Label className="text-[10px] uppercase tracking-wider">Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 bg-background border-border rounded-sm" /></div>
+              <div>
+  <Label className="text-[10px] uppercase tracking-wider">Notes</Label>
+  <Textarea
+    value={notes}
+    onChange={(e) => setNotes(e.target.value)}
+    placeholder={`Example:
+Size: 550 X 200 CM
+Material: Mactac Sticker
+Warranty: 7 days against peeling`}
+    rows={5}
+    className="mt-1 bg-background border-border rounded-sm min-h-[120px] resize-y"
+    data-testid="edit-quotation-notes"
+  />
+</div>
             </div>
             <div className="border border-border rounded-sm p-4 ml-auto sm:w-80">
               <SummaryRow label="Subtotal" value={fmtKWD(subtotal)} />
