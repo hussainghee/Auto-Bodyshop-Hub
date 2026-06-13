@@ -276,13 +276,13 @@ export default function BrandedDocument({
       )}
 
       {notes && (
-        <div className="mt-6 border-t border-[#D8D0EA] pt-4">
-          <div className="print-section-title">Notes</div>
-          <div className="text-sm text-[#111111] whitespace-pre-line mt-2 break-words">
-            {notes}
-          </div>
-        </div>
-      )}
+  <div className="mt-5 border-t border-[#D8D0EA] pt-3 break-inside-avoid">
+    <div className="print-section-title">Notes</div>
+    <div className="text-xs leading-relaxed text-[#111111] whitespace-pre-line mt-2 break-words">
+      {notes}
+    </div>
+  </div>
+)}
 
       {terms.length > 0 && (
         <div className="mt-6 border-t border-[#D8D0EA] pt-4">
