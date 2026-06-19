@@ -31,6 +31,21 @@ export default function Receipt() {
   }
 
   const payment = (job.payments || []).find(p => p.id === pid);
+  const payments = job.payments || [];
+const paymentIndex = payments.findIndex(p => p.id === pid);
+
+const receiptInvoiceTotal =
+  payment.invoice_total ?? job.total ?? 0;
+
+const receiptTotalPaid =
+  payment.total_paid_after_payment ??
+  payments
+    .slice(0, paymentIndex + 1)
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+const receiptBalanceDue =
+  payment.balance_due_after_payment ??
+  Math.max(Number(receiptInvoiceTotal || 0) - Number(receiptTotalPaid || 0), 0);
 
   if (!payment) {
     return (
@@ -144,12 +159,12 @@ export default function Receipt() {
           </div>
 
           <div className="receipt-stat-grid">
-            <Stat label="Invoice Total" value={fmtKWD(job.total)} />
-            <Stat label="Total Paid" value={fmtKWD(job.total_paid)} />
+            <Stat label="Invoice Total" value={fmtKWD(receiptInvoiceTotal)} />
+            <Stat label="Total Paid" value={fmtKWD(receiptTotalPaid)} />
             <Stat
               label="Balance Due"
-              value={fmtKWD(job.balance_due)}
-              accent={job.balance_due > 0.001 ? "#B42318" : "#008A3D"}
+              value={fmtKWD(receiptBalanceDue)}
+              accent={receiptBalanceDue > 0.001 ? "#B42318" : "#008A3D"}
             />
           </div>
 

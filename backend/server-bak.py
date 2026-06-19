@@ -1947,31 +1947,31 @@ async def add_payment(jid: str, body: PaymentIn, user=Depends(require_roles("adm
         raise HTTPException(400, "Amount must be > 0")
 
     existing_paid = round3(sum(float(p.get("amount", 0) or 0) for p in job.get("payments", [])))
-    payment_amount = round3(float(body.amount or 0))
-    invoice_total = round3(float(job.get("total", 0) or 0))
-    total_paid_after_payment = round3(existing_paid + payment_amount)
-    balance_due_after_payment = round3(max(invoice_total - total_paid_after_payment, 0))
+payment_amount = round3(float(body.amount or 0))
+invoice_total = round3(float(job.get("total", 0) or 0))
+total_paid_after_payment = round3(existing_paid + payment_amount)
+balance_due_after_payment = round3(max(invoice_total - total_paid_after_payment, 0))
 
-    payment = {
-        "id": new_id(),
-        "method": body.method,
-        "amount": payment_amount,
-        "auth_code": clean_str(body.auth_code),
-        "notes": clean_str(body.notes),
-        "recorded_by": user["id"],
-        "recorded_at": now_iso(),
-        "invoice_total": invoice_total,
-        "total_paid_after_payment": total_paid_after_payment,
-        "balance_due_after_payment": balance_due_after_payment,
-    }
+payment = {
+    "id": new_id(),
+    "method": body.method,
+    "amount": payment_amount,
+    "auth_code": clean_str(body.auth_code),
+    "notes": clean_str(body.notes),
+    "recorded_by": user["id"],
+    "recorded_at": now_iso(),
+    "invoice_total": invoice_total,
+    "total_paid_after_payment": total_paid_after_payment,
+    "balance_due_after_payment": balance_due_after_payment,
+}
 
-    await db.jobs.update_one(
-        {"id": jid},
-        {
-            "$push": {"payments": payment},
-            "$set": {"updated_at": now_iso(), "updated_by": user["id"]},
-        },
-    )
+await db.jobs.update_one(
+    {"id": jid},
+    {
+        "$push": {"payments": payment},
+        "$set": {"updated_at": now_iso(), "updated_by": user["id"]},
+    },
+)
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
 @api.delete("/jobs/{jid}/payments/{pid}")
