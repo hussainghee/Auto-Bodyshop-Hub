@@ -770,7 +770,7 @@ async def list_roles(user=Depends(get_current_user)):
     return rows
 
 @api.post("/roles")
-async def create_role(body: RoleIn, user=Depends(require_roles("admin"))):
+async def create_role(body: RoleIn, user=Depends(require_permission("settings_roles"))):
     if await db.roles.find_one({"name": body.name.strip()}):
         raise HTTPException(400, "Role name already exists")
     perms = {k: bool(body.permissions.get(k, False)) for k in PERMISSION_KEYS}
@@ -783,7 +783,7 @@ async def create_role(body: RoleIn, user=Depends(require_roles("admin"))):
     return doc
 
 @api.patch("/roles/{rid}")
-async def update_role(rid: str, body: RoleIn, user=Depends(require_roles("admin"))):
+async def update_role(rid: str, body: RoleIn, user=Depends(require_permission("settings_roles"))):
     perms = {k: bool(body.permissions.get(k, False)) for k in PERMISSION_KEYS}
     upd = {"name": body.name.strip(), "description": clean_str(body.description),
            "active": body.active, "permissions": perms}
@@ -792,7 +792,7 @@ async def update_role(rid: str, body: RoleIn, user=Depends(require_roles("admin"
     return await db.roles.find_one({"id": rid}, {"_id": 0})
 
 @api.delete("/roles/{rid}")
-async def delete_role(rid: str, user=Depends(require_roles("admin"))):
+async def delete_role(rid: str, user=Depends(require_permission("settings_roles"))):
     linked = await db.users.count_documents({"role_id": rid})
     if linked:
         raise HTTPException(400, f"Cannot delete: {linked} user(s) assigned. Reassign first or mark inactive.")
@@ -833,7 +833,7 @@ async def list_brands(q: Optional[str] = None, user=Depends(get_current_user)):
 
 
 @api.post("/vehicle-brands")
-async def create_brand(body: VehicleBrandIn, user=Depends(require_roles("admin"))):
+async def create_brand(body: VehicleBrandIn, user=Depends(require_permission("settings_vehicle_management"))):
     name = body.name.strip()
 
     if not name:
@@ -865,7 +865,7 @@ async def create_brand(body: VehicleBrandIn, user=Depends(require_roles("admin")
 
 
 @api.patch("/vehicle-brands/{bid}")
-async def update_brand(bid: str, body: VehicleBrandIn, user=Depends(require_roles("admin"))):
+async def update_brand(bid: str, body: VehicleBrandIn, user=Depends(require_permission("settings_vehicle_management"))):
     name = body.name.strip()
 
     if not name:
@@ -905,7 +905,7 @@ async def update_brand(bid: str, body: VehicleBrandIn, user=Depends(require_role
 
 
 @api.delete("/vehicle-brands/{bid}")
-async def delete_brand(bid: str, user=Depends(require_roles("admin"))):
+async def delete_brand(bid: str, user=Depends(require_permission("settings_vehicle_management"))):
     brand = await db.vehicle_makes.find_one({"id": bid}, {"_id": 0})
 
     if not brand:
@@ -963,7 +963,7 @@ async def list_models(brand_id: Optional[str] = None, user=Depends(get_current_u
 
 
 @api.post("/vehicle-models")
-async def create_model(body: VehicleModelIn, user=Depends(require_roles("admin"))):
+async def create_model(body: VehicleModelIn, user=Depends(require_permission("settings_vehicle_management"))):
     model_name = body.name.strip()
 
     if not model_name:
@@ -1006,7 +1006,7 @@ async def create_model(body: VehicleModelIn, user=Depends(require_roles("admin")
 
 
 @api.patch("/vehicle-models/{mid}")
-async def update_model(mid: str, body: VehicleModelIn, user=Depends(require_roles("admin"))):
+async def update_model(mid: str, body: VehicleModelIn, user=Depends(require_permission("settings_vehicle_management"))):
     """
     mid format from this backend is: brand_id::model_name
     """
@@ -1066,7 +1066,7 @@ async def update_model(mid: str, body: VehicleModelIn, user=Depends(require_role
 
 
 @api.delete("/vehicle-models/{mid}")
-async def delete_model(mid: str, user=Depends(require_roles("admin"))):
+async def delete_model(mid: str, user=Depends(require_permission("settings_vehicle_management"))):
     """
     mid format from this backend is: brand_id::model_name
     """
@@ -1194,7 +1194,7 @@ async def list_customers(q: Optional[str] = None, user=Depends(get_current_user)
     return await db.customers.find(flt, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
 @api.post("/customers")
-async def create_customer(body: CustomerIn, user=Depends(require_roles("admin", "sales"))):
+async def create_customer(body: CustomerIn, user=Depends(require_permission("customers"))):
     doc = {
         "id": new_id(),
         "name": body.name.strip(),
@@ -1228,7 +1228,7 @@ async def get_customer(cid: str, user=Depends(get_current_user)):
     return c
 
 @api.patch("/customers/{cid}")
-async def update_customer(cid: str, body: CustomerIn, user=Depends(require_roles("admin", "sales"))):
+async def update_customer(cid: str, body: CustomerIn, user=Depends(require_permission("customers"))):
     upd = {
         "name": body.name.strip(), "mobile": body.mobile.strip(),
         "email": clean_str(body.email), "address": clean_str(body.address),
@@ -1240,7 +1240,7 @@ async def update_customer(cid: str, body: CustomerIn, user=Depends(require_roles
     return await db.customers.find_one({"id": cid}, {"_id": 0})
 
 @api.delete("/customers/{cid}")
-async def delete_customer(cid: str, user=Depends(require_roles("admin"))):
+async def delete_customer(cid: str, user=Depends(require_permission("customers"))):
     await db.customers.delete_one({"id": cid})
     await db.vehicles.delete_many({"customer_id": cid})
     return {"ok": True}
@@ -1289,7 +1289,7 @@ async def list_vehicles(customer_id: Optional[str] = None,
     return rows
 
 @api.post("/vehicles")
-async def create_vehicle(body: VehicleIn, user=Depends(require_roles("admin", "sales"))):
+async def create_vehicle(body: VehicleIn, user=Depends(require_permission("vehicles"))):
     doc = body.model_dump(); doc["id"] = new_id()
     audit(user, doc)
     await db.vehicles.insert_one(doc.copy())
@@ -1305,14 +1305,14 @@ async def get_vehicle(vid: str, user=Depends(get_current_user)):
     return v
 
 @api.patch("/vehicles/{vid}")
-async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require_roles("admin", "sales"))):
+async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require_permission("vehicles"))):
     upd = body.model_dump()
     audit(user, upd, creating=False)
     await db.vehicles.update_one({"id": vid}, {"$set": upd})
     return await db.vehicles.find_one({"id": vid}, {"_id": 0})
 
 @api.delete("/vehicles/{vid}")
-async def delete_vehicle(vid: str, user=Depends(require_roles("admin", "sales"))):
+async def delete_vehicle(vid: str, user=Depends(require_permission("vehicles"))):
     await db.vehicles.delete_one({"id": vid})
     return {"ok": True}
 
@@ -1322,7 +1322,7 @@ async def list_vt(user=Depends(get_current_user)):
     return await db.vehicle_types.find({}, {"_id": 0}).to_list(100)
 
 @api.post("/vehicle-types")
-async def create_vt(body: VehicleTypeIn, user=Depends(require_roles("admin"))):
+async def create_vt(body: VehicleTypeIn, user=Depends(require_permission("settings_vehicle_management"))):
     if await db.vehicle_types.find_one({"key": body.key}):
         raise HTTPException(400, "Key exists")
     doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
@@ -1330,13 +1330,13 @@ async def create_vt(body: VehicleTypeIn, user=Depends(require_roles("admin"))):
     doc.pop("_id", None); return doc
 
 @api.patch("/vehicle-types/{vid}")
-async def update_vt(vid: str, body: VehicleTypeIn, user=Depends(require_roles("admin"))):
+async def update_vt(vid: str, body: VehicleTypeIn, user=Depends(require_permission("settings_vehicle_management"))):
     upd = body.model_dump(); audit(user, upd, creating=False)
     await db.vehicle_types.update_one({"id": vid}, {"$set": upd})
     return await db.vehicle_types.find_one({"id": vid}, {"_id": 0})
 
 @api.delete("/vehicle-types/{vid}")
-async def delete_vt(vid: str, user=Depends(require_roles("admin"))):
+async def delete_vt(vid: str, user=Depends(require_permission("settings_vehicle_management"))):
     await db.vehicle_types.delete_one({"id": vid})
     return {"ok": True}
 
@@ -1346,7 +1346,7 @@ async def list_makes(user=Depends(get_current_user)):
     return await db.vehicle_makes.find({}, {"_id": 0}).sort("label", 1).to_list(500)
 
 @api.post("/vehicle-makes")
-async def create_make(body: VehicleMakeIn, user=Depends(require_roles("admin"))):
+async def create_make(body: VehicleMakeIn, user=Depends(require_permission("settings_vehicle_management"))):
     if await db.vehicle_makes.find_one({"label": body.label}):
         raise HTTPException(400, "Make already exists")
     doc = {"id": new_id(), "label": body.label.strip(), "models": [m.strip() for m in body.models if m.strip()]}
@@ -1355,14 +1355,14 @@ async def create_make(body: VehicleMakeIn, user=Depends(require_roles("admin")))
     doc.pop("_id", None); return doc
 
 @api.patch("/vehicle-makes/{mid}")
-async def update_make(mid: str, body: VehicleMakeIn, user=Depends(require_roles("admin"))):
+async def update_make(mid: str, body: VehicleMakeIn, user=Depends(require_permission("settings_vehicle_management"))):
     upd = {"label": body.label.strip(), "models": [m.strip() for m in body.models if m.strip()]}
     audit(user, upd, creating=False)
     await db.vehicle_makes.update_one({"id": mid}, {"$set": upd})
     return await db.vehicle_makes.find_one({"id": mid}, {"_id": 0})
 
 @api.delete("/vehicle-makes/{mid}")
-async def delete_make(mid: str, user=Depends(require_roles("admin"))):
+async def delete_make(mid: str, user=Depends(require_permission("settings_vehicle_management"))):
     await db.vehicle_makes.delete_one({"id": mid})
     return {"ok": True}
 
@@ -1372,19 +1372,19 @@ async def list_services(user=Depends(get_current_user)):
     return await db.services.find({}, {"_id": 0}).to_list(500)
 
 @api.post("/services")
-async def create_service(body: ServiceIn, user=Depends(require_roles("admin"))):
+async def create_service(body: ServiceIn, user=Depends(require_permission("services"))):
     doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
     await db.services.insert_one(doc.copy())
     doc.pop("_id", None); return doc
 
 @api.patch("/services/{sid}")
-async def update_service(sid: str, body: ServiceIn, user=Depends(require_roles("admin"))):
+async def update_service(sid: str, body: ServiceIn, user=Depends(require_permission("services"))):
     upd = body.model_dump(); audit(user, upd, creating=False)
     await db.services.update_one({"id": sid}, {"$set": upd})
     return await db.services.find_one({"id": sid}, {"_id": 0})
 
 @api.delete("/services/{sid}")
-async def delete_service(sid: str, user=Depends(require_roles("admin"))):
+async def delete_service(sid: str, user=Depends(require_permission("services"))):
     await db.services.delete_one({"id": sid})
     return {"ok": True}
 
@@ -1469,7 +1469,7 @@ async def list_quotations(
     return rows
 
 @api.post("/quotations")
-async def create_quotation(body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
+async def create_quotation(body: QuotationIn, user=Depends(require_permission("quotations"))):
     lines = [l.model_dump() for l in body.lines]
     totals = _calc_totals(lines, body.discount, body.tax_rate, body.discount_type, body.discount_value)
     seq = await _next_seq("quotation")
@@ -1505,7 +1505,7 @@ async def get_quotation(qid: str, user=Depends(get_current_user)):
     return q
 
 @api.patch("/quotations/{qid}")
-async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_roles("admin", "sales"))):
+async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_permission("quotations"))):
     lines = [l.model_dump() for l in body.lines]
     totals = _calc_totals(lines, body.discount, body.tax_rate, body.discount_type, body.discount_value)
     upd = {"customer_id": body.customer_id, "vehicle_id": body.vehicle_id,
@@ -1515,7 +1515,7 @@ async def update_quotation(qid: str, body: QuotationIn, user=Depends(require_rol
     return await db.quotations.find_one({"id": qid}, {"_id": 0})
 
 @api.post("/quotations/{qid}/status")
-async def quotation_status(qid: str, body: QuotationStatusIn, user=Depends(require_roles("admin", "sales"))):
+async def quotation_status(qid: str, body: QuotationStatusIn, user=Depends(require_permission("quotations"))):
     q = await db.quotations.find_one({"id": qid}, {"_id": 0})
     if not q: raise HTTPException(404)
     upd = {"status": body.status}
@@ -1552,7 +1552,7 @@ async def quotation_status(qid: str, body: QuotationStatusIn, user=Depends(requi
     return res
 
 @api.post("/quotations/{qid}/whatsapp")
-async def send_quotation_whatsapp(qid: str, user=Depends(require_roles("admin", "sales"))):
+async def send_quotation_whatsapp(qid: str, user=Depends(require_permission("quotations"))):
     q = await db.quotations.find_one({"id": qid}, {"_id": 0})
     if not q:
         raise HTTPException(404, "Quotation not found")
@@ -1596,12 +1596,12 @@ async def send_quotation_whatsapp(qid: str, user=Depends(require_roles("admin", 
 
 
 @api.delete("/quotations/{qid}")
-async def delete_quotation(qid: str, user=Depends(require_roles("admin"))):
+async def delete_quotation(qid: str, user=Depends(require_permission("quotations"))):
     await db.quotations.delete_one({"id": qid})
     return {"ok": True}
 
 @api.post("/quotations/{qid}/convert")
-async def convert_to_job(qid: str, user=Depends(require_roles("admin", "sales"))):
+async def convert_to_job(qid: str, user=Depends(require_permission("quotations"))):
     q = await db.quotations.find_one({"id": qid}, {"_id": 0})
     if not q: raise HTTPException(404)
     existing = await db.jobs.find_one({"quotation_id": qid}, {"_id": 0})
@@ -1657,7 +1657,7 @@ def _enrich_job(job):
     return job
 
 @api.post("/jobs")
-async def create_job_direct(body: JobCreateIn, user=Depends(require_roles("admin", "sales"))):
+async def create_job_direct(body: JobCreateIn, user=Depends(require_permission("jobs"))):
     customer = await db.customers.find_one({"id": body.customer_id}, {"_id": 0})
     if not customer:
         raise HTTPException(404, "Customer not found")
@@ -1785,7 +1785,7 @@ async def get_job(jid: str, user=Depends(get_current_user)):
     return _enrich_job(j)
 
 @api.post("/jobs/{jid}/whatsapp/invoice")
-async def send_job_invoice_whatsapp(jid: str, user=Depends(require_roles("admin", "sales"))):
+async def send_job_invoice_whatsapp(jid: str, user=Depends(require_permission("jobs"))):
     job = await db.jobs.find_one({"id": jid}, {"_id": 0})
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1835,7 +1835,7 @@ async def send_job_invoice_whatsapp(jid: str, user=Depends(require_roles("admin"
 
 
 @api.patch("/jobs/{jid}/invoice")
-async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_roles("admin", "sales"))):
+async def edit_invoice(jid: str, body: JobInvoiceEditIn, user=Depends(require_permission("jobs"))):
     job = await db.jobs.find_one({"id": jid})
     if not job: raise HTTPException(404)
     tax_rate = body.tax_rate if body.tax_rate is not None else job.get("tax_rate", 0)
@@ -1910,7 +1910,7 @@ async def job_status(jid: str, body: JobStatusIn, user=Depends(get_current_user)
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
 @api.post("/jobs/{jid}/assign")
-async def assign_job(jid: str, body: JobAssignIn, user=Depends(require_roles("admin", "sales"))):
+async def assign_job(jid: str, body: JobAssignIn, user=Depends(require_permission("jobs"))):
     upd = {"technician_id": body.technician_id}
     audit(user, upd, creating=False)
     await db.jobs.update_one({"id": jid}, {"$set": upd})
@@ -1938,7 +1938,7 @@ async def job_photos(jid: str, kind: str = Query(..., regex="^(before|after)$"),
 
 # Payments
 @api.post("/jobs/{jid}/payments")
-async def add_payment(jid: str, body: PaymentIn, user=Depends(require_roles("admin", "sales"))):
+async def add_payment(jid: str, body: PaymentIn, user=Depends(require_permission("jobs"))):
     job = await db.jobs.find_one({"id": jid})
     if not job: raise HTTPException(404)
     if body.method in ("knet", "credit_card") and not (body.auth_code or "").strip():
@@ -1975,7 +1975,7 @@ async def add_payment(jid: str, body: PaymentIn, user=Depends(require_roles("adm
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
 @api.delete("/jobs/{jid}/payments/{pid}")
-async def delete_payment(jid: str, pid: str, user=Depends(require_roles("admin"))):
+async def delete_payment(jid: str, pid: str, user=Depends(require_permission("jobs"))):
     await db.jobs.update_one({"id": jid}, {"$pull": {"payments": {"id": pid}}})
     return _enrich_job(await db.jobs.find_one({"id": jid}, {"_id": 0}))
 
@@ -2079,7 +2079,7 @@ async def list_inv_categories(q: Optional[str] = None, user=Depends(get_current_
     return rows
 
 @api.post("/inventory-categories")
-async def create_inv_category(body: InventoryCategoryIn, user=Depends(require_roles("admin", "sales"))):
+async def create_inv_category(body: InventoryCategoryIn, user=Depends(require_permission("inventory_categories"))):
     if await db.inventory_categories.find_one({"name": body.name.strip()}):
         raise HTTPException(400, "Category name already exists")
     doc = {"id": new_id(), "name": body.name.strip(),
@@ -2089,14 +2089,14 @@ async def create_inv_category(body: InventoryCategoryIn, user=Depends(require_ro
     doc.pop("_id", None); return doc
 
 @api.patch("/inventory-categories/{cid}")
-async def update_inv_category(cid: str, body: InventoryCategoryIn, user=Depends(require_roles("admin", "sales"))):
+async def update_inv_category(cid: str, body: InventoryCategoryIn, user=Depends(require_permission("inventory_categories"))):
     upd = {"name": body.name.strip(), "description": clean_str(body.description), "active": body.active}
     audit(user, upd, creating=False)
     await db.inventory_categories.update_one({"id": cid}, {"$set": upd})
     return await db.inventory_categories.find_one({"id": cid}, {"_id": 0})
 
 @api.delete("/inventory-categories/{cid}")
-async def delete_inv_category(cid: str, user=Depends(require_roles("admin"))):
+async def delete_inv_category(cid: str, user=Depends(require_permission("inventory_categories"))):
     cat = await db.inventory_categories.find_one({"id": cid}, {"_id": 0})
     if not cat: raise HTTPException(404)
     if cat.get("is_default"):
@@ -2108,7 +2108,7 @@ async def delete_inv_category(cid: str, user=Depends(require_roles("admin"))):
     return {"ok": True}
 
 @api.get("/export/inventory-categories")
-async def export_inv_categories(q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+async def export_inv_categories(q: Optional[str] = None, user=Depends(require_permission("inventory_categories"))):
     flt: Dict[str, Any] = {}
     if q: flt["name"] = {"$regex": q, "$options": "i"}
     rows = await db.inventory_categories.find(flt, {"_id": 0}).sort("name", 1).to_list(500)
@@ -2151,7 +2151,7 @@ async def list_svc_categories(q: Optional[str] = None, user=Depends(get_current_
     return rows
 
 @api.post("/service-categories")
-async def create_svc_category(body: ServiceCategoryIn, user=Depends(require_roles("admin"))):
+async def create_svc_category(body: ServiceCategoryIn, user=Depends(require_permission("services"))):
     if await db.service_categories.find_one({"name": body.name.strip()}):
         raise HTTPException(400, "Category name already exists")
     doc = {"id": new_id(), "name": body.name.strip(),
@@ -2161,14 +2161,14 @@ async def create_svc_category(body: ServiceCategoryIn, user=Depends(require_role
     doc.pop("_id", None); return doc
 
 @api.patch("/service-categories/{cid}")
-async def update_svc_category(cid: str, body: ServiceCategoryIn, user=Depends(require_roles("admin"))):
+async def update_svc_category(cid: str, body: ServiceCategoryIn, user=Depends(require_permission("services"))):
     upd = {"name": body.name.strip(), "description": clean_str(body.description), "active": body.active}
     audit(user, upd, creating=False)
     await db.service_categories.update_one({"id": cid}, {"$set": upd})
     return await db.service_categories.find_one({"id": cid}, {"_id": 0})
 
 @api.delete("/service-categories/{cid}")
-async def delete_svc_category(cid: str, user=Depends(require_roles("admin"))):
+async def delete_svc_category(cid: str, user=Depends(require_permission("services"))):
     linked = await db.services.count_documents({"category_id": cid})
     if linked:
         raise HTTPException(400, f"Cannot delete: {linked} service(s) linked. Mark inactive or reassign services.")
@@ -2210,7 +2210,7 @@ async def _migrate_inv_to_default():
         {"$set": {"category_id": default_id, "active": True}})
 
 @api.post("/inventory")
-async def create_inv(body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
+async def create_inv(body: InventoryIn, user=Depends(require_permission("inventory_products"))):
     doc = body.model_dump()
     if not doc.get("category_id"):
         doc["category_id"] = await _ensure_default_inv_category()
@@ -2221,7 +2221,7 @@ async def create_inv(body: InventoryIn, user=Depends(require_roles("admin", "sal
     doc.pop("_id", None); return doc
 
 @api.patch("/inventory/{iid}")
-async def update_inv(iid: str, body: InventoryIn, user=Depends(require_roles("admin", "sales"))):
+async def update_inv(iid: str, body: InventoryIn, user=Depends(require_permission("inventory_products"))):
     upd = body.model_dump()
     if not upd.get("category_id"):
         upd["category_id"] = await _ensure_default_inv_category()
@@ -2232,14 +2232,14 @@ async def update_inv(iid: str, body: InventoryIn, user=Depends(require_roles("ad
     return await db.inventory.find_one({"id": iid}, {"_id": 0})
 
 @api.delete("/inventory/{iid}")
-async def delete_inv(iid: str, user=Depends(require_roles("admin"))):
+async def delete_inv(iid: str, user=Depends(require_permission("inventory_products"))):
     await db.inventory.delete_one({"id": iid})
     return {"ok": True}
 
 @api.get("/export/inventory")
 async def export_inventory(q: Optional[str] = None, category_id: Optional[str] = None,
                            status_: Optional[str] = Query(None, alias="status"),
-                           user=Depends(require_roles("admin", "sales"))):
+                           user=Depends(require_permission("inventory_products"))):
     flt: Dict[str, Any] = {}
     if category_id and category_id != "all":
         flt["category_id"] = category_id
@@ -2275,19 +2275,19 @@ async def list_appts(user=Depends(get_current_user)):
     return await db.appointments.find({}, {"_id": 0}).sort("start", 1).to_list(2000)
 
 @api.post("/appointments")
-async def create_appt(body: AppointmentIn, user=Depends(require_roles("admin", "sales"))):
+async def create_appt(body: AppointmentIn, user=Depends(require_permission("jobs"))):
     doc = body.model_dump(); doc["id"] = new_id(); audit(user, doc)
     await db.appointments.insert_one(doc.copy())
     doc.pop("_id", None); return doc
 
 @api.patch("/appointments/{aid}")
-async def update_appt(aid: str, body: AppointmentIn, user=Depends(require_roles("admin", "sales"))):
+async def update_appt(aid: str, body: AppointmentIn, user=Depends(require_permission("jobs"))):
     upd = body.model_dump(); audit(user, upd, creating=False)
     await db.appointments.update_one({"id": aid}, {"$set": upd})
     return await db.appointments.find_one({"id": aid}, {"_id": 0})
 
 @api.delete("/appointments/{aid}")
-async def delete_appt(aid: str, user=Depends(require_roles("admin", "sales"))):
+async def delete_appt(aid: str, user=Depends(require_permission("jobs"))):
     await db.appointments.delete_one({"id": aid})
     return {"ok": True}
 
@@ -2340,7 +2340,7 @@ async def payments_report(
     start: Optional[str] = None, end: Optional[str] = None,
     method: Optional[str] = None,
     received_by: Optional[str] = None,
-    user=Depends(require_roles("admin", "sales")),
+    user=Depends(require_permission("reports")),
 ):
     # Default to TODAY if no date range supplied
     if not start and not end:
@@ -2403,7 +2403,7 @@ async def payments_report(
 async def payments_export(
     start: Optional[str] = None, end: Optional[str] = None,
     method: Optional[str] = None, received_by: Optional[str] = None,
-    user=Depends(require_roles("admin", "sales")),
+    user=Depends(require_permission("reports")),
 ):
     data = await payments_report(start, end, method, received_by, user)
     wb = Workbook(); ws = wb.active; ws.title = "Payments"
@@ -2550,7 +2550,7 @@ def _xlsx_stream(wb, filename: str):
                              headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @api.get("/export/customers")
-async def export_customers(q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+async def export_customers(q: Optional[str] = None, user=Depends(require_permission("customers"))):
     flt: Dict[str, Any] = {}
     if q:
         flt["$or"] = [
@@ -2569,7 +2569,7 @@ async def export_customers(q: Optional[str] = None, user=Depends(require_roles("
     return _xlsx_stream(wb, f"customers_{datetime.now().strftime('%Y%m%d')}.xlsx")
 
 @api.post("/import/customers")
-async def import_customers(file: UploadFile = File(...), user=Depends(require_roles("admin", "sales"))):
+async def import_customers(file: UploadFile = File(...), user=Depends(require_permission("customers"))):
     try:
         content = await file.read()
         wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
@@ -2619,7 +2619,7 @@ async def export_vehicles(q: Optional[str] = None, make: Optional[str] = None,
                           model: Optional[str] = None, year: Optional[int] = None,
                           vehicle_type: Optional[str] = None, color: Optional[str] = None,
                           start: Optional[str] = None, end: Optional[str] = None,
-                          user=Depends(require_roles("admin", "sales"))):
+                          user=Depends(require_permission("vehicles"))):
     flt: Dict[str, Any] = {}
     if make: flt["make"] = {"$regex": f"^{make}$", "$options": "i"}
     if model: flt["model"] = {"$regex": f"^{model}$", "$options": "i"}
@@ -2796,12 +2796,12 @@ async def _apply_segment_filters(f: SegmentFilter):
     return customers
 
 @api.post("/segments/preview")
-async def segment_preview(body: SegmentFilter, user=Depends(require_roles("admin", "sales"))):
+async def segment_preview(body: SegmentFilter, user=Depends(require_permission("segments"))):
     customers = await _apply_segment_filters(body)
     return {"count": len(customers), "customers": customers}
 
 @api.get("/segments")
-async def list_segments(user=Depends(require_roles("admin", "sales"))):
+async def list_segments(user=Depends(require_permission("segments"))):
     rows = await db.segments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for r in rows:
         by = await db.users.find_one({"id": r.get("created_by")}, {"_id": 0, "name": 1})
@@ -2809,7 +2809,7 @@ async def list_segments(user=Depends(require_roles("admin", "sales"))):
     return rows
 
 @api.post("/segments")
-async def create_segment(body: SegmentIn, user=Depends(require_roles("admin", "sales"))):
+async def create_segment(body: SegmentIn, user=Depends(require_permission("segments"))):
     customers = await _apply_segment_filters(body.filters)
     doc = {
         "id": new_id(), "name": body.name.strip(),
@@ -2823,7 +2823,7 @@ async def create_segment(body: SegmentIn, user=Depends(require_roles("admin", "s
     return doc
 
 @api.get("/segments/{sid}")
-async def get_segment(sid: str, q: Optional[str] = None, user=Depends(require_roles("admin", "sales"))):
+async def get_segment(sid: str, q: Optional[str] = None, user=Depends(require_permission("segments"))):
     s = await db.segments.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404)
     by = await db.users.find_one({"id": s.get("created_by")}, {"_id": 0, "name": 1})
@@ -2845,12 +2845,12 @@ async def get_segment(sid: str, q: Optional[str] = None, user=Depends(require_ro
     return s
 
 @api.delete("/segments/{sid}")
-async def delete_segment(sid: str, user=Depends(require_roles("admin"))):
+async def delete_segment(sid: str, user=Depends(require_permission("segments"))):
     await db.segments.delete_one({"id": sid})
     return {"ok": True}
 
 @api.get("/segments/{sid}/export")
-async def export_segment(sid: str, user=Depends(require_roles("admin", "sales"))):
+async def export_segment(sid: str, user=Depends(require_permission("segments"))):
     s = await db.segments.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404)
     customers = await _apply_segment_filters(SegmentFilter(**s["filters"]))
