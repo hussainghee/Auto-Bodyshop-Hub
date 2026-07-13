@@ -6,6 +6,7 @@ import StatusBadge from "../components/StatusBadge";
 import VehicleMap from "../components/VehicleMap";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -539,7 +540,20 @@ export default function Quotations() {
                   <div><Label className="text-[10px] uppercase tracking-wider">Tax Rate (%)</Label><Input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(Number(e.target.value))} className="mt-1 bg-background border-border rounded-sm" /></div>
                   <div><Label className="text-[10px] uppercase tracking-wider">Valid Until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-1 bg-background border-border rounded-sm" data-testid="quotation-valid-until" /></div>
                 </div>
-                <div><Label className="text-[10px] uppercase tracking-wider">Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 bg-background border-border rounded-sm" /></div>
+                <div>
+                  <Label className="text-[10px] uppercase tracking-wider">Notes</Label>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={5}
+                    placeholder={`Example:
+Size: 550 X 200 CM
+Material: Mactac Sticker
+Warranty: 7 days against peeling`}
+                    className="mt-1 bg-background border-border rounded-sm min-h-[120px] resize-y"
+                    data-testid="wizard-notes"
+                  />
+                </div>
                 <div className="border border-border rounded-sm p-4 ml-auto sm:w-80" data-testid="wizard-totals">
                   <Row label="Subtotal" value={fmtKWD(subtotal)} />
                   {showDiscountLine && <Row label={`Discount${discountType === "percent" ? ` (${discountValue}%)` : ""}`} value={`- ${fmtKWD(discountAmount)}`} testid="wizard-discount-line" />}
